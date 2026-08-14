@@ -3,9 +3,15 @@ mod config;
 mod task;
 
 use crate::task::{is_start_generate_proof_tasks, run_generate_proof_tasks};
+use alloy_primitives::Address;
+use anyhow::Context;
 use api::metrics_service::ApiMetricsState;
+use api::{AuthorizationChain, AuthorizationChains};
 use clap::Parser;
+use client::goat_chain::{GOATClient, GoatInitConfig, GoatNetwork};
 use futures::future;
+use std::collections::HashSet;
+use std::sync::Arc;
 use tokio::signal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -35,10 +41,10 @@ async fn main() -> anyhow::Result<()> {
     let opt = Opts::parse();
 
     let cfg = ProofBuilderConfig::new(&opt.config)?;
-    let trusted_api_keys = cfg.api_auth.trusted_keys()?;
     println!("proof builder config: {:?}", cfg);
 
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+    let authorization_chains = goat_clients_from_env().await?;
     // Create cancellation token for graceful shutdown
     let cancellation_token = CancellationToken::new();
     info!("load db {}", opt.database_url);
@@ -55,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
             opt_rpc_addr,
             local_db_clone1,
             api_metrics_state,
-            trusted_api_keys,
+            authorization_chains,
             cancel_token_clone,
         )
         .await
@@ -134,6 +140,84 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Builds one read-only GOAT client per configured Gateway for live authorization.
+async fn goat_clients_from_env() -> anyhow::Result<AuthorizationChains> {
+    let network = match std::env::var("GOAT_NETWORK")
+        .context("GOAT_NETWORK is required for Proof Builder authorization")?
+        .as_str()
+    {
+        "main" => GoatNetwork::Main,
+        "test" => GoatNetwork::Test,
+        value => anyhow::bail!("invalid GOAT_NETWORK {value:?}; expected main or test"),
+    };
+    let rpc_url = std::env::var("GOAT_CHAIN_URL")
+        .context("GOAT_CHAIN_URL is required for Proof Builder authorization")?
+        .parse()
+        .context("invalid GOAT_CHAIN_URL")?;
+    let gateway_addresses = parse_gateway_addresses(
+        &std::env::var("GOAT_GATEWAY_CONTRACT_ADDRESS")
+            .context("GOAT_GATEWAY_CONTRACT_ADDRESS is required for Proof Builder authorization")?,
+    )?;
+
+    let base_config =
+        GoatInitConfig::new(rpc_url).await.context("failed to query GOAT chain id")?;
+    let mut chains = AuthorizationChains::with_capacity(gateway_addresses.len());
+    for gateway_address in gateway_addresses {
+        let gateway_config = base_config.clone().with_gateway_address(Some(gateway_address));
+        let discovery_client = GOATClient::new(gateway_config.clone(), network);
+        let committee_management =
+            discovery_client.gateway_get_committee_management().await.with_context(|| {
+                format!("failed to discover CommitteeManagement from Gateway {gateway_address}")
+            })?;
+        let stake_management =
+            discovery_client.gateway_get_stake_management().await.with_context(|| {
+                format!("failed to discover StakeManagement from Gateway {gateway_address}")
+            })?;
+        anyhow::ensure!(
+            committee_management != [0; 20],
+            "Gateway {gateway_address} returned a zero CommitteeManagement address"
+        );
+        anyhow::ensure!(
+            stake_management != [0; 20],
+            "Gateway {gateway_address} returned a zero StakeManagement address"
+        );
+        let config = gateway_config
+            .with_committee_management_address(Some(Address::from_slice(&committee_management)))
+            .with_stake_management_address(Some(Address::from_slice(&stake_management)));
+        let chain: Arc<dyn AuthorizationChain> = Arc::new(GOATClient::new(config, network));
+        chains.insert(gateway_address, chain);
+    }
+    Ok(chains)
+}
+
+/// Parses and validates the comma-separated Gateway deployment list.
+fn parse_gateway_addresses(value: &str) -> anyhow::Result<Vec<Address>> {
+    let mut addresses = Vec::new();
+    let mut seen = HashSet::new();
+    for (index, raw_address) in value.split(',').enumerate() {
+        let raw_address = raw_address.trim();
+        anyhow::ensure!(
+            !raw_address.is_empty(),
+            "GOAT_GATEWAY_CONTRACT_ADDRESS entry {} must not be empty",
+            index + 1
+        );
+        let address = raw_address.parse::<Address>().with_context(|| {
+            format!("invalid GOAT_GATEWAY_CONTRACT_ADDRESS entry {raw_address:?}")
+        })?;
+        anyhow::ensure!(
+            address != Address::ZERO,
+            "GOAT_GATEWAY_CONTRACT_ADDRESS entry {} must not be the zero address",
+            index + 1
+        );
+        anyhow::ensure!(
+            seen.insert(address),
+            "duplicate GOAT_GATEWAY_CONTRACT_ADDRESS entry {raw_address:?}"
+        );
+        addresses.push(address);
+    }
+    Ok(addresses)
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
@@ -154,5 +238,33 @@ async fn shutdown_signal() {
         _ = terminate => {
             tracing::info!("Received SIGTERM signal, starting graceful shutdown...");
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_single_and_multiple_gateway_addresses() {
+        let first = Address::from_slice(&[1; 20]);
+        let second = Address::from_slice(&[2; 20]);
+
+        assert_eq!(parse_gateway_addresses(&first.to_string()).unwrap(), vec![first]);
+        assert_eq!(
+            parse_gateway_addresses(&format!("  {first} , {second}  ")).unwrap(),
+            vec![first, second]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_zero_empty_and_duplicate_gateway_addresses() {
+        let address = Address::from_slice(&[1; 20]);
+
+        assert!(parse_gateway_addresses("").is_err());
+        assert!(parse_gateway_addresses(&format!("{address},")).is_err());
+        assert!(parse_gateway_addresses("invalid").is_err());
+        assert!(parse_gateway_addresses(&Address::ZERO.to_string()).is_err());
+        assert!(parse_gateway_addresses(&format!("{address},{address}")).is_err());
     }
 }

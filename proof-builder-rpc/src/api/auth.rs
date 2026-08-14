@@ -1,36 +1,79 @@
 use crate::api::response::ErrorResponse;
-use crate::config::TrustedApiKeys;
+use alloy_primitives::Address;
+use async_trait::async_trait;
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
+use client::goat_chain::{GOATClient, GraphData};
 use proof_builder::api_auth::{
     AUTH_NONCE_HEADER, AUTH_PUBLIC_KEY_HEADER, AUTH_SIGNATURE_HEADER, AUTH_TIMESTAMP_HEADER,
     AUTH_WINDOW_SECS, ProofBuilderAuthRole, normalize_public_key,
     verify_proof_builder_request_signature,
 };
+use secp256k1::XOnlyPublicKey;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
-type AuthResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
+pub(crate) type AuthResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
+pub(crate) type AuthorizationChains = HashMap<Address, Arc<dyn AuthorizationChain>>;
+
+#[async_trait]
+pub(crate) trait AuthorizationChain: Send + Sync {
+    /// Resolves an Operator x-only public key to its registered stake address.
+    async fn operator_address(&self, public_key: &[u8; 32]) -> anyhow::Result<[u8; 20]>;
+    /// Returns the Gateway's current minimum Operator stake.
+    async fn minimum_operator_stake(&self) -> anyhow::Result<u64>;
+    /// Returns the stake currently locked by one registered Operator address.
+    async fn locked_operator_stake(&self, operator: &[u8; 20]) -> anyhow::Result<u64>;
+    /// Returns the Gateway data registered for one graph.
+    async fn graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData>;
+    /// Returns all graph IDs registered under one instance.
+    async fn graph_ids(&self, instance_id: &Uuid) -> anyhow::Result<Vec<Uuid>>;
+    /// Returns the current global Watchtower registry.
+    async fn watchtowers(&self) -> anyhow::Result<Vec<XOnlyPublicKey>>;
+}
+
+#[async_trait]
+impl AuthorizationChain for GOATClient {
+    async fn operator_address(&self, public_key: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
+        self.stake_mana_pubkey_to_address(public_key).await
+    }
+
+    async fn minimum_operator_stake(&self) -> anyhow::Result<u64> {
+        self.gateway_get_min_stake_amount().await
+    }
+
+    async fn locked_operator_stake(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+        self.stake_mana_lock_stake_of(operator).await
+    }
+
+    async fn graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+        self.gateway_get_graph_data(graph_id).await
+    }
+
+    async fn graph_ids(&self, instance_id: &Uuid) -> anyhow::Result<Vec<Uuid>> {
+        self.gateway_get_graph_ids_by_instance_id(instance_id).await
+    }
+
+    async fn watchtowers(&self) -> anyhow::Result<Vec<XOnlyPublicKey>> {
+        self.committee_mana_get_watchtowers().await
+    }
+}
 
 pub(crate) struct RequestAuthorizer {
-    trusted_operator_keys: HashSet<secp256k1::XOnlyPublicKey>,
-    trusted_watchtower_keys: HashSet<secp256k1::XOnlyPublicKey>,
+    chains: AuthorizationChains,
     accepted_nonces: Mutex<HashMap<(String, String), i64>>,
 }
 
 impl RequestAuthorizer {
-    /// Creates a request authorizer from validated role-specific public keys.
-    pub(crate) fn new(keys: TrustedApiKeys) -> Self {
-        Self {
-            trusted_operator_keys: keys.operator,
-            trusted_watchtower_keys: keys.watchtower,
-            accepted_nonces: Mutex::new(HashMap::new()),
-        }
+    /// Creates an authorizer backed by live GOAT contract queries.
+    pub(crate) fn new(chains: AuthorizationChains) -> Self {
+        Self { chains, accepted_nonces: Mutex::new(HashMap::new()) }
     }
 
-    /// Authenticates and authorizes a request for one Proof Builder role.
-    pub(crate) fn authorize<B: Serialize>(
+    /// Verifies request credentials locally and returns the authenticated signer.
+    pub(crate) fn authenticate<B: Serialize>(
         &self,
         headers: &HeaderMap,
         role: ProofBuilderAuthRole,
@@ -38,21 +81,13 @@ impl RequestAuthorizer {
         path: &str,
         body: &B,
         claimed_watchtower_public_key: Option<&str>,
-    ) -> AuthResult<()> {
+    ) -> AuthResult<XOnlyPublicKey> {
         let timestamp = required_header(headers, AUTH_TIMESTAMP_HEADER)?;
         let nonce = required_header(headers, AUTH_NONCE_HEADER)?;
         let signer_value = required_header(headers, AUTH_PUBLIC_KEY_HEADER)?;
         let signature = required_header(headers, AUTH_SIGNATURE_HEADER)?;
         let signer = normalize_public_key(signer_value)
             .map_err(|_| unauthorized("invalid signer public key"))?;
-
-        let trusted = match role {
-            ProofBuilderAuthRole::Operator => &self.trusted_operator_keys,
-            ProofBuilderAuthRole::Watchtower => &self.trusted_watchtower_keys,
-        };
-        if !trusted.contains(&signer) {
-            return Err(forbidden("signer is not trusted for this role"));
-        }
 
         if let Some(claimed_public_key) = claimed_watchtower_public_key {
             let claimed = normalize_public_key(claimed_public_key)
@@ -67,7 +102,90 @@ impl RequestAuthorizer {
         )
         .map_err(|_| unauthorized("invalid request signature"))?;
         self.record_nonce(&signer.to_string(), nonce)?;
+        Ok(signer)
+    }
+
+    /// Checks current Operator registration, stake, graph ownership, and instance membership.
+    pub(crate) async fn authorize_operator(
+        &self,
+        signer: &XOnlyPublicKey,
+        gateway_address: Option<&str>,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+    ) -> AuthResult<()> {
+        let chain = self.chain_for_gateway(gateway_address)?;
+        let signer_bytes = signer.serialize();
+        let operator_address =
+            chain.operator_address(&signer_bytes).await.map_err(contract_unavailable)?;
+        if operator_address == [0; 20] {
+            return Err(forbidden("operator signer is not registered"));
+        }
+
+        let minimum_stake = chain.minimum_operator_stake().await.map_err(contract_unavailable)?;
+        let locked_stake =
+            chain.locked_operator_stake(&operator_address).await.map_err(contract_unavailable)?;
+        if locked_stake < minimum_stake {
+            return Err(forbidden("operator signer has insufficient locked stake"));
+        }
+
+        let graph_data = chain.graph_data(graph_id).await.map_err(contract_unavailable)?;
+        if graph_data.operator_pubkey == [0; 32] {
+            return Err(forbidden("graph is not registered"));
+        }
+        if graph_data.operator_pubkey != signer_bytes {
+            return Err(forbidden("operator signer does not own graph"));
+        }
+
+        let graph_ids = chain.graph_ids(instance_id).await.map_err(contract_unavailable)?;
+        if !graph_ids.contains(graph_id) {
+            return Err(forbidden("graph does not belong to instance"));
+        }
         Ok(())
+    }
+
+    /// Checks that the signer is in the current global Watchtower registry.
+    pub(crate) async fn authorize_watchtower(
+        &self,
+        signer: &XOnlyPublicKey,
+        gateway_address: Option<&str>,
+    ) -> AuthResult<()> {
+        let chain = self.chain_for_gateway(gateway_address)?;
+        let watchtowers = chain.watchtowers().await.map_err(contract_unavailable)?;
+        if !watchtowers.contains(signer) {
+            return Err(forbidden("watchtower signer is not registered"));
+        }
+        Ok(())
+    }
+
+    /// Selects the configured contract set identified by the signed request body.
+    fn chain_for_gateway(
+        &self,
+        gateway_address: Option<&str>,
+    ) -> AuthResult<Arc<dyn AuthorizationChain>> {
+        let gateway_address = match gateway_address {
+            Some(value) => {
+                let address = value
+                    .parse::<Address>()
+                    .map_err(|_| bad_request("gateway_address is not a valid EVM address"))?;
+                if address == Address::ZERO {
+                    return Err(bad_request("gateway_address must not be the zero address"));
+                }
+                address
+            }
+            None if self.chains.len() == 1 => {
+                return Ok(self.chains.values().next().expect("one chain is configured").clone());
+            }
+            None => {
+                return Err(bad_request(
+                    "gateway_address is required when multiple Gateways are configured",
+                ));
+            }
+        };
+
+        self.chains
+            .get(&gateway_address)
+            .cloned()
+            .ok_or_else(|| forbidden("gateway_address is not configured"))
     }
 
     /// Atomically rejects a nonce already accepted from the same signer.
@@ -83,6 +201,11 @@ impl RequestAuthorizer {
         }
         Ok(())
     }
+}
+
+/// Builds a 400 response for an invalid or ambiguous Gateway selection.
+fn bad_request(message: &str) -> (StatusCode, Json<ErrorResponse>) {
+    auth_error(StatusCode::BAD_REQUEST, message)
 }
 
 /// Reads one required UTF-8 authentication header.
@@ -101,6 +224,12 @@ fn unauthorized(message: &str) -> (StatusCode, Json<ErrorResponse>) {
 /// Builds a 403 response for an authenticated identity without the required role or ownership.
 fn forbidden(message: &str) -> (StatusCode, Json<ErrorResponse>) {
     auth_error(StatusCode::FORBIDDEN, message)
+}
+
+/// Converts a failed authorization contract query into a fail-closed response.
+fn contract_unavailable(error: anyhow::Error) -> (StatusCode, Json<ErrorResponse>) {
+    tracing::warn!(error = %error, "GOAT authorization query failed");
+    auth_error(StatusCode::SERVICE_UNAVAILABLE, "authorization contract is unavailable")
 }
 
 /// Builds a 500 response when the local authentication state cannot be used safely.
@@ -128,11 +257,143 @@ fn current_time_secs() -> i64 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_support {
     use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    #[derive(Default)]
+    struct TestAuthorizationState {
+        operator_addresses: HashMap<[u8; 32], [u8; 20]>,
+        locked_stakes: HashMap<[u8; 20], u64>,
+        minimum_stake: u64,
+        graphs: HashMap<Uuid, GraphData>,
+        instance_graphs: HashMap<Uuid, Vec<Uuid>>,
+        watchtowers: HashSet<XOnlyPublicKey>,
+        fail_queries: bool,
+    }
+
+    #[derive(Default)]
+    pub(crate) struct TestAuthorizationChain {
+        state: Mutex<TestAuthorizationState>,
+    }
+
+    impl TestAuthorizationChain {
+        pub(crate) fn set_operator(
+            &self,
+            public_key: XOnlyPublicKey,
+            address: [u8; 20],
+            locked_stake: u64,
+            minimum_stake: u64,
+        ) {
+            let mut state = self.state.lock().unwrap();
+            state.operator_addresses.insert(public_key.serialize(), address);
+            state.locked_stakes.insert(address, locked_stake);
+            state.minimum_stake = minimum_stake;
+        }
+
+        pub(crate) fn remove_operator(&self, public_key: &XOnlyPublicKey) {
+            let mut state = self.state.lock().unwrap();
+            if let Some(address) = state.operator_addresses.remove(&public_key.serialize()) {
+                state.locked_stakes.remove(&address);
+            }
+        }
+
+        pub(crate) fn set_graph(&self, instance_id: Uuid, graph_id: Uuid, owner: XOnlyPublicKey) {
+            let mut state = self.state.lock().unwrap();
+            state.graphs.insert(graph_id, graph_data(owner));
+            state.instance_graphs.entry(instance_id).or_default().push(graph_id);
+        }
+
+        pub(crate) fn set_graph_owner(&self, graph_id: Uuid, owner: XOnlyPublicKey) {
+            self.state.lock().unwrap().graphs.insert(graph_id, graph_data(owner));
+        }
+
+        pub(crate) fn add_watchtower(&self, public_key: XOnlyPublicKey) {
+            self.state.lock().unwrap().watchtowers.insert(public_key);
+        }
+
+        pub(crate) fn remove_watchtower(&self, public_key: &XOnlyPublicKey) {
+            self.state.lock().unwrap().watchtowers.remove(public_key);
+        }
+
+        pub(crate) fn set_fail_queries(&self, fail_queries: bool) {
+            self.state.lock().unwrap().fail_queries = fail_queries;
+        }
+    }
+
+    #[async_trait]
+    impl AuthorizationChain for TestAuthorizationChain {
+        async fn operator_address(&self, public_key: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
+            let state = self.state.lock().unwrap();
+            ensure_available(&state)?;
+            Ok(state.operator_addresses.get(public_key).copied().unwrap_or([0; 20]))
+        }
+
+        async fn minimum_operator_stake(&self) -> anyhow::Result<u64> {
+            let state = self.state.lock().unwrap();
+            ensure_available(&state)?;
+            Ok(state.minimum_stake)
+        }
+
+        async fn locked_operator_stake(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
+            let state = self.state.lock().unwrap();
+            ensure_available(&state)?;
+            Ok(state.locked_stakes.get(operator).copied().unwrap_or_default())
+        }
+
+        async fn graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
+            let state = self.state.lock().unwrap();
+            ensure_available(&state)?;
+            Ok(state.graphs.get(graph_id).cloned().unwrap_or_else(empty_graph_data))
+        }
+
+        async fn graph_ids(&self, instance_id: &Uuid) -> anyhow::Result<Vec<Uuid>> {
+            let state = self.state.lock().unwrap();
+            ensure_available(&state)?;
+            Ok(state.instance_graphs.get(instance_id).cloned().unwrap_or_default())
+        }
+
+        async fn watchtowers(&self) -> anyhow::Result<Vec<XOnlyPublicKey>> {
+            let state = self.state.lock().unwrap();
+            ensure_available(&state)?;
+            Ok(state.watchtowers.iter().copied().collect())
+        }
+    }
+
+    fn ensure_available(state: &TestAuthorizationState) -> anyhow::Result<()> {
+        anyhow::ensure!(!state.fail_queries, "authorization query failed");
+        Ok(())
+    }
+
+    fn graph_data(owner: XOnlyPublicKey) -> GraphData {
+        GraphData { operator_pubkey: owner.serialize(), ..empty_graph_data() }
+    }
+
+    fn empty_graph_data() -> GraphData {
+        GraphData {
+            operator_pubkey_prefix: 0,
+            operator_pubkey: [0; 32],
+            pegin_txid: [0; 32],
+            kickoff_txid: [0; 32],
+            take1_txid: [0; 32],
+            take2_txid: [0; 32],
+            watchtower_challenge_init_txid: [0; 32],
+            prover_assert_txid: [0; 32],
+            disprove_txids: vec![],
+            watchtower_challenge_timeout_txids: vec![],
+            operator_challenge_nack_txids: vec![],
+            operator_commit_timeout_txid: [0; 32],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::TestAuthorizationChain;
+    use super::*;
+    use proof_builder::OperatorProofTimeoutUpdateRequest;
     use proof_builder::api_auth::{ProofBuilderAuthHeaders, sign_proof_builder_request};
     use secp256k1::{Keypair, SECP256K1};
-    use serde::Serialize;
 
     #[derive(Serialize)]
     struct TestBody {
@@ -144,6 +405,15 @@ mod tests {
         Keypair::from_seckey_slice(SECP256K1, &[seed; 32]).unwrap()
     }
 
+    fn gateway(seed: u8) -> Address {
+        Address::from_slice(&[seed; 20])
+    }
+
+    fn chains(gateway: Address, chain: Arc<TestAuthorizationChain>) -> AuthorizationChains {
+        let chain: Arc<dyn AuthorizationChain> = chain;
+        HashMap::from([(gateway, chain)])
+    }
+
     fn headers(values: &ProofBuilderAuthHeaders) -> HeaderMap {
         let mut headers = HeaderMap::new();
         for (name, value) in values.to_header_pairs() {
@@ -152,18 +422,11 @@ mod tests {
         headers
     }
 
-    fn authorizer(operator: &Keypair, watchtower: &Keypair) -> RequestAuthorizer {
-        RequestAuthorizer::new(TrustedApiKeys {
-            operator: HashSet::from([operator.x_only_public_key().0]),
-            watchtower: HashSet::from([watchtower.x_only_public_key().0]),
-        })
-    }
-
     #[test]
-    fn accepts_trusted_signer_once_and_rejects_replay() {
+    fn authenticates_valid_signer_once_and_rejects_replay() {
         let operator = keypair(7);
-        let watchtower = keypair(9);
-        let authorizer = authorizer(&operator, &watchtower);
+        let authorizer =
+            RequestAuthorizer::new(chains(gateway(1), Arc::new(TestAuthorizationChain::default())));
         let body = TestBody { public_key: operator.public_key().to_string(), value: 1 };
         let signed = sign_proof_builder_request(
             &operator,
@@ -177,7 +440,7 @@ mod tests {
 
         assert!(
             authorizer
-                .authorize(
+                .authenticate(
                     &headers,
                     ProofBuilderAuthRole::Operator,
                     "POST",
@@ -189,7 +452,7 @@ mod tests {
         );
         assert_eq!(
             authorizer
-                .authorize(
+                .authenticate(
                     &headers,
                     ProofBuilderAuthRole::Operator,
                     "POST",
@@ -204,57 +467,253 @@ mod tests {
     }
 
     #[test]
-    fn rejects_cross_role_and_mismatched_watchtower_identity() {
+    fn rejects_gateway_address_changed_after_signing() {
         let operator = keypair(7);
-        let watchtower = keypair(9);
-        let other_watchtower = keypair(11);
-        let authorizer = authorizer(&operator, &watchtower);
-        let operator_body = TestBody { public_key: watchtower.public_key().to_string(), value: 1 };
-        let cross_role = sign_proof_builder_request(
-            &watchtower,
+        let authorizer =
+            RequestAuthorizer::new(chains(gateway(1), Arc::new(TestAuthorizationChain::default())));
+        let signed_body = OperatorProofTimeoutUpdateRequest {
+            instance_id: Uuid::new_v4().to_string(),
+            graph_id: Uuid::new_v4().to_string(),
+            gateway_address: Some(gateway(1).to_string()),
+        };
+        let signed = sign_proof_builder_request(
+            &operator,
             ProofBuilderAuthRole::Operator,
             "POST",
-            "/v1/proofs/operator_proofs",
-            &operator_body,
+            "/v1/proofs/operator_proofs_timeout",
+            &signed_body,
         )
         .unwrap();
+        let tampered_body = OperatorProofTimeoutUpdateRequest {
+            gateway_address: Some(gateway(2).to_string()),
+            ..signed_body
+        };
+
         assert_eq!(
             authorizer
-                .authorize(
-                    &headers(&cross_role),
+                .authenticate(
+                    &headers(&signed),
                     ProofBuilderAuthRole::Operator,
                     "POST",
-                    "/v1/proofs/operator_proofs",
-                    &operator_body,
+                    "/v1/proofs/operator_proofs_timeout",
+                    &tampered_body,
                     None,
                 )
+                .unwrap_err()
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn operator_authorization_uses_current_registration_stake_and_graph_owner() {
+        let operator = keypair(7).x_only_public_key().0;
+        let other_operator = keypair(8).x_only_public_key().0;
+        let instance_id = Uuid::new_v4();
+        let graph_id = Uuid::new_v4();
+        let chain = Arc::new(TestAuthorizationChain::default());
+        let authorizer = RequestAuthorizer::new(chains(gateway(1), chain.clone()));
+
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
                 .unwrap_err()
                 .0,
             StatusCode::FORBIDDEN
         );
 
-        let watchtower_body =
-            TestBody { public_key: other_watchtower.public_key().to_string(), value: 1 };
+        chain.set_operator(operator, [1; 20], 99, 100);
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+
+        chain.set_operator(operator, [1; 20], 100, 100);
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+
+        chain.set_graph_owner(graph_id, other_operator);
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+
+        chain.set_graph(instance_id, graph_id, operator);
+        assert!(
+            authorizer.authorize_operator(&operator, None, &instance_id, &graph_id).await.is_ok()
+        );
+
+        chain.remove_operator(&operator);
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn operator_authorization_rejects_instance_mismatch_and_query_failure() {
+        let operator = keypair(7).x_only_public_key().0;
+        let instance_id = Uuid::new_v4();
+        let other_instance_id = Uuid::new_v4();
+        let graph_id = Uuid::new_v4();
+        let chain = Arc::new(TestAuthorizationChain::default());
+        chain.set_operator(operator, [1; 20], 100, 100);
+        chain.set_graph(other_instance_id, graph_id, operator);
+        let authorizer = RequestAuthorizer::new(chains(gateway(1), chain.clone()));
+
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+
+        chain.set_fail_queries(true);
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, None, &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[tokio::test]
+    async fn watchtower_authorization_tracks_registry_and_binds_request_identity() {
+        let watchtower_keypair = keypair(9);
+        let watchtower = watchtower_keypair.x_only_public_key().0;
+        let other_watchtower = keypair(11);
+        let chain = Arc::new(TestAuthorizationChain::default());
+        chain.add_watchtower(watchtower);
+        let authorizer = RequestAuthorizer::new(chains(gateway(1), chain.clone()));
+
+        assert!(authorizer.authorize_watchtower(&watchtower, None).await.is_ok());
+        chain.remove_watchtower(&watchtower);
+        assert_eq!(
+            authorizer.authorize_watchtower(&watchtower, None).await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+
+        let body = TestBody { public_key: other_watchtower.public_key().to_string(), value: 1 };
         let signed = sign_proof_builder_request(
-            &watchtower,
+            &watchtower_keypair,
             ProofBuilderAuthRole::Watchtower,
             "POST",
             "/v1/proofs/watchtower_proofs",
-            &watchtower_body,
+            &body,
         )
         .unwrap();
         assert_eq!(
             authorizer
-                .authorize(
+                .authenticate(
                     &headers(&signed),
                     ProofBuilderAuthRole::Watchtower,
                     "POST",
                     "/v1/proofs/watchtower_proofs",
-                    &watchtower_body,
-                    Some(&watchtower_body.public_key),
+                    &body,
+                    Some(&body.public_key),
                 )
                 .unwrap_err()
                 .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn authorization_selects_gateway_and_does_not_cache_chain_state() {
+        let operator = keypair(7).x_only_public_key().0;
+        let watchtower = keypair(9).x_only_public_key().0;
+        let instance_id = Uuid::new_v4();
+        let graph_id = Uuid::new_v4();
+        let gateway_a = gateway(1);
+        let gateway_b = gateway(2);
+        let chain_a = Arc::new(TestAuthorizationChain::default());
+        let chain_b = Arc::new(TestAuthorizationChain::default());
+        chain_a.set_operator(operator, [1; 20], 100, 100);
+        chain_a.set_graph(instance_id, graph_id, operator);
+        chain_a.add_watchtower(watchtower);
+        let chain_a_trait: Arc<dyn AuthorizationChain> = chain_a.clone();
+        let chain_b_trait: Arc<dyn AuthorizationChain> = chain_b;
+        let authorizer = RequestAuthorizer::new(HashMap::from([
+            (gateway_a, chain_a_trait),
+            (gateway_b, chain_b_trait),
+        ]));
+        let gateway_a = gateway_a.to_string();
+        let gateway_b = gateway_b.to_string();
+
+        assert!(
+            authorizer
+                .authorize_operator(&operator, Some(&gateway_a), &instance_id, &graph_id)
+                .await
+                .is_ok()
+        );
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, Some(&gateway_b), &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        assert!(authorizer.authorize_watchtower(&watchtower, Some(&gateway_a)).await.is_ok());
+        assert_eq!(
+            authorizer.authorize_watchtower(&watchtower, Some(&gateway_b)).await.unwrap_err().0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            authorizer.authorize_watchtower(&watchtower, None).await.unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            authorizer.authorize_watchtower(&watchtower, Some("invalid")).await.unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            authorizer
+                .authorize_watchtower(
+                    &watchtower,
+                    Some(&Address::from_slice(&[3; 20]).to_string()),
+                )
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+
+        chain_a.remove_operator(&operator);
+        chain_a.remove_watchtower(&watchtower);
+        assert_eq!(
+            authorizer
+                .authorize_operator(&operator, Some(&gateway_a), &instance_id, &graph_id)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            authorizer.authorize_watchtower(&watchtower, Some(&gateway_a)).await.unwrap_err().0,
             StatusCode::FORBIDDEN
         );
     }

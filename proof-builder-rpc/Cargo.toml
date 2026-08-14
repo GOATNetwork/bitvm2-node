@@ -13,6 +13,7 @@ clap = { workspace = true }
 futures = { workspace = true }
 dotenv = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 store = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util.workspace = true
