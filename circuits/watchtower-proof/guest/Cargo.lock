@@ -276,7 +276,7 @@ dependencies = [
 [[package]]
 name = "alloy-primitives"
 version = "1.4.1"
-source = "git+https://github.com/ziren-patches/core.git?branch=patch-alloy-primitives-1.4.1#59313700f710f1373a5b4cdc05c51dc3227d8064"
+source = "git+https://github.com/ziren-patches/core.git?branch=patch-alloy-primitives-1.4.1#0d034202c9977acd601399efdd9c30fd1c1a08a0"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -1027,7 +1027,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "verifier",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives",
  "zkm-verifier",
  "zkm-zkvm",
 ]
@@ -1143,7 +1143,7 @@ dependencies = [
 [[package]]
 name = "bls12_381"
 version = "0.8.0"
-source = "git+https://github.com/ziren-patches/bls12_381?branch=patch-0.8.0#bcf9397426410acc171ad625416b508dc913be8e"
+source = "git+https://github.com/ziren-patches/bls12_381?branch=patch-0.8.0#97b215f80e9bfab9ad6641e41b005b6d8e58f748"
 dependencies = [
  "cfg-if",
  "ff 0.13.1",
@@ -1151,7 +1151,7 @@ dependencies = [
  "pairing 0.23.0",
  "rand_core 0.6.4",
  "subtle",
- "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -2305,7 +2305,7 @@ dependencies = [
 [[package]]
 name = "guest-executor"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#294aa06127be4bfda47a7fd4905b93bb8e664dca"
+source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#eee4dbfbdb7734d2785d58f95de84393dbb9009e"
 dependencies = [
  "alloy-consensus",
  "alloy-evm",
@@ -2458,7 +2458,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "verifier",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -2824,7 +2824,7 @@ dependencies = [
 [[package]]
 name = "k256"
 version = "0.13.4"
-source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-k256-0.13.4#8266b228a39402a0ba68d644b7f26b85b5112fe3"
+source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-k256-0.13.4#6ad84b9b604911c6f5dd353b88c04927d2739a32"
 dependencies = [
  "cfg-if",
  "ecdsa",
@@ -2834,7 +2834,7 @@ dependencies = [
  "serdect",
  "sha2 0.10.9",
  "signature",
- "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -2988,7 +2988,7 @@ dependencies = [
 [[package]]
 name = "mpt"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#294aa06127be4bfda47a7fd4905b93bb8e664dca"
+source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#eee4dbfbdb7734d2785d58f95de84393dbb9009e"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -3245,14 +3245,14 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "p256"
 version = "0.13.2"
-source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#a6f1a1fb07020d00f627725a20dc336983be3946"
+source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#88d42225abcb639b9bd3a930ac5a14f2262541c8"
 dependencies = [
  "ecdsa",
  "elliptic-curve",
  "hex",
  "primeorder",
  "sha2 0.10.9",
- "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -3804,7 +3804,7 @@ dependencies = [
 [[package]]
 name = "primeorder"
 version = "0.13.1"
-source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#a6f1a1fb07020d00f627725a20dc336983be3946"
+source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#88d42225abcb639b9bd3a930ac5a14f2262541c8"
 dependencies = [
  "elliptic-curve",
 ]
@@ -3823,7 +3823,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#294aa06127be4bfda47a7fd4905b93bb8e664dca"
+source = "git+https://github.com/ProjectZKM/reth-processor?branch=feat%2Fslot-state-check#eee4dbfbdb7734d2785d58f95de84393dbb9009e"
 dependencies = [
  "alloy-eips",
  "alloy-genesis",
@@ -5211,7 +5211,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "verifier",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -5279,7 +5279,7 @@ dependencies = [
 [[package]]
 name = "substrate-bn"
 version = "0.6.0"
-source = "git+https://github.com/ziren-patches/bn?branch=patch-0.6.0#aba71380457d798039111e6cc0fdf2e0718c6766"
+source = "git+https://github.com/ziren-patches/bn?branch=patch-0.6.0#0dfeeb1b7bfc21941b6e4964d678abd094a54a6f"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -5289,7 +5289,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "rand 0.8.5",
  "rustc-hex",
- "zkm-lib 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -6356,8 +6356,8 @@ dependencies = [
 
 [[package]]
 name = "zkm-core-executor"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "anyhow",
  "bincode",
@@ -6391,14 +6391,14 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-core-machine"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "bincode",
  "cfg-if",
@@ -6443,14 +6443,14 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-curves"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "cfg-if",
  "curve25519-dalek",
@@ -6467,14 +6467,14 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "typenum",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-derive"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6483,34 +6483,21 @@ dependencies = [
 
 [[package]]
 name = "zkm-lib"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "bincode",
  "cfg-if",
  "elliptic-curve",
  "serde",
  "sha2 0.10.9",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
-]
-
-[[package]]
-name = "zkm-lib"
-version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
-dependencies = [
- "bincode",
- "cfg-if",
- "elliptic-curve",
- "serde",
- "sha2 0.10.9",
- "zkm-primitives 1.2.5 (git+https://github.com/ProjectZKM/Ziren)",
+ "zkm-primitives",
 ]
 
 [[package]]
 name = "zkm-primitives"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "bincode",
  "blake3",
@@ -6528,27 +6515,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "zkm-primitives"
-version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
-dependencies = [
- "bincode",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "p3-field",
- "p3-koala-bear",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "serde",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "zkm-recursion-core"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "backtrace",
  "ff 0.13.1",
@@ -6578,14 +6547,14 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-stark"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "arrayref",
  "hashbrown 0.14.5",
@@ -6620,14 +6589,14 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber",
  "zkm-derive",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
 [[package]]
 name = "zkm-verifier"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "anyhow",
  "bincode",
@@ -6649,15 +6618,15 @@ dependencies = [
  "thiserror 2.0.18",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-stark",
 ]
 
 [[package]]
 name = "zkm-zkvm"
-version = "1.2.5"
-source = "git+https://github.com/VanhGer/Ziren.git?branch=blake3#a5165540e300dd7a13ea79babd392086bc67fd48"
+version = "1.2.7"
+source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "bincode",
  "blake3",
@@ -6670,8 +6639,8 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "sha2 0.10.9",
- "zkm-lib 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
- "zkm-primitives 1.2.5 (git+https://github.com/VanhGer/Ziren.git?branch=blake3)",
+ "zkm-lib",
+ "zkm-primitives",
 ]
 
 [[package]]
