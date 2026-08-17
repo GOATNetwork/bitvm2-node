@@ -15,7 +15,6 @@ use crate::task::{
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
-use anyhow::Context;
 use bitcoin::{BlockHash, Network, Txid};
 use client::btc_chain::BTCClient;
 use std::collections::HashSet;
@@ -193,15 +192,10 @@ pub(crate) async fn run_generate_proof_tasks(
 
 pub(crate) async fn fetch_next_commit_task_index(local_db: &LocalDB) -> anyhow::Result<usize> {
     let mut storage_processor = local_db.acquire().await?;
-    let latest_proof = storage_processor
-        .find_latest_long_running_task_proof_by_name(CommitChainProofBuilder::name())
-        .await?
-        .context("latest Commit proof record is missing")?;
-    latest_proof
-        .extra
-        .context("latest Commit proof next index is missing")?
-        .parse()
-        .context("invalid latest Commit proof next index")
+    let proofs = storage_processor
+        .find_all_running_task_proofs_by_name(CommitChainProofBuilder::name())
+        .await?;
+    Ok(proofs.len())
 }
 
 pub(crate) async fn fetch_latest_long_running_task(
@@ -564,7 +558,7 @@ pub(crate) async fn create_long_running_task(
         .await
 }
 
-/// Persists a Commit proof and its next input index, replacing prior records for a replay.
+/// Persists a Commit proof, replacing prior Commit records for a Genesis replay.
 pub(crate) async fn create_commit_chain_proof(
     local_db: &LocalDB,
     start: i64,
@@ -575,7 +569,6 @@ pub(crate) async fn create_commit_chain_proof(
     cycles: u64,
     chain_name: String,
     replace_existing: bool,
-    next_commit_index: usize,
     total_time_to_proof: i64,
     proving_time: i64,
     proof_state: ProofState,
@@ -618,7 +611,7 @@ pub(crate) async fn create_commit_chain_proof(
             total_time_to_proof,
             proving_time,
             zkm_version,
-            extra: Some(next_commit_index.to_string()),
+            extra: None,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         })
@@ -965,105 +958,6 @@ mod tests {
             proof_state: ProofState::Proven.to_i64(),
             ..LongRunningTaskProof::default()
         }
-    }
-
-    #[tokio::test]
-    async fn genesis_commit_proof_replaces_only_commit_chain_records() {
-        let local_db = create_local_db("sqlite::memory:").await;
-        let mut storage = local_db.acquire().await.unwrap();
-        storage
-            .create_long_running_task_proof(&long_running_task("commit-chain", 10, "old-1"))
-            .await
-            .unwrap();
-        storage
-            .create_long_running_task_proof(&long_running_task("commit-chain", 20, "old-2"))
-            .await
-            .unwrap();
-        storage
-            .create_long_running_task_proof(&long_running_task("header-chain", 0, "header"))
-            .await
-            .unwrap();
-        let header_count = storage
-            .find_all_running_task_proofs_by_name(HeaderChainProofBuilder::name())
-            .await
-            .unwrap()
-            .len();
-        drop(storage);
-
-        create_commit_chain_proof(
-            &local_db,
-            10,
-            100,
-            "new".to_string(),
-            "public-values".to_string(),
-            1,
-            2,
-            CommitChainProofBuilder::name(),
-            true,
-            2,
-            3,
-            4,
-            ProofState::Proven,
-            "v1.2.5".to_string(),
-        )
-        .await
-        .unwrap();
-
-        let mut storage = local_db.acquire().await.unwrap();
-        let commits = storage
-            .find_all_running_task_proofs_by_name(CommitChainProofBuilder::name())
-            .await
-            .unwrap();
-        assert_eq!(commits.len(), 1);
-        assert_eq!(commits[0].path_to_proof.as_deref(), Some("new"));
-        assert_eq!(
-            storage
-                .find_all_running_task_proofs_by_name(HeaderChainProofBuilder::name())
-                .await
-                .unwrap()
-                .len(),
-            header_count
-        );
-    }
-
-    #[tokio::test]
-    async fn failed_genesis_commit_insert_rolls_back_old_record_deletion() {
-        let local_db = create_local_db("sqlite::memory:").await;
-        let mut storage = local_db.acquire().await.unwrap();
-        storage
-            .create_long_running_task_proof(&long_running_task("commit-chain", 10, "old"))
-            .await
-            .unwrap();
-        drop(storage);
-
-        assert!(
-            create_commit_chain_proof(
-                &local_db,
-                10,
-                100,
-                "new".to_string(),
-                "public-values".to_string(),
-                1,
-                2,
-                "invalid-chain".to_string(),
-                true,
-                99,
-                3,
-                4,
-                ProofState::Proven,
-                "v1.2.5".to_string(),
-            )
-            .await
-            .is_err()
-        );
-
-        let mut storage = local_db.acquire().await.unwrap();
-        let commits = storage
-            .find_all_running_task_proofs_by_name(CommitChainProofBuilder::name())
-            .await
-            .unwrap();
-        assert_eq!(commits.len(), 1);
-        assert_eq!(commits[0].path_to_proof.as_deref(), Some("old"));
     }
 
     #[tokio::test]

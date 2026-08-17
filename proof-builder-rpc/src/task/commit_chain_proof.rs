@@ -4,7 +4,6 @@ use crate::task::fetch_latest_long_running_task;
 use crate::task::fetch_next_commit_task_index;
 use commit_chain_proof::CommitChainProofBuilder;
 use commit_chain_proof::fetch_commit_chain;
-use commit_chain_proof::load_upgrade_commits;
 use proof_builder::{ProofBuilder, ProofRequest};
 use std::time::Duration;
 use store::localdb::LocalDB;
@@ -36,8 +35,8 @@ pub(crate) fn spawn_commit_chain_proof_task(
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
-                    let starts_from_genesis = args.starts_from_genesis();
-                    if !starts_from_genesis {
+                    let init_input = args.init_input;
+                    if !init_input {
                         let next_task = fetch_latest_long_running_task(&local_db, CommitChainProofBuilder::name()).await?;
                         if let Some(next_task) = next_task {
                             info!("Commit chain's next task: {next_task:?}");
@@ -65,33 +64,17 @@ pub(crate) fn spawn_commit_chain_proof_task(
                     }
                     info!("Commit chain proof generate task: generate proof, args: {args:?}");
 
-                    let mut commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.bitcoin_network).await {
+                    let commits = match fetch_commit_chain(&args.esplora_url, &args.commit_info, &args.commits, args.bitcoin_network).await {
                         Ok(d) => d,
                         Err(err) => {
                             tracing::warn!("Fetch commit chain error, {err:?}, continuing");
                             continue;
                         }
                     };
-                    if let Some(path) = args.upgrade_commits.as_deref() {
-                        commits = match load_upgrade_commits(path, &commits[0]) {
-                            Ok(commits) => commits,
-                            Err(err) => {
-                                tracing::warn!("Load upgrade commits error, {err:?}, continuing");
-                                continue;
-                            }
-                        };
-                    }
-                    let next_commit_index = if starts_from_genesis {
-                        commits.len()
-                    } else {
-                        args.start.checked_add(commits.len()).ok_or_else(|| {
-                            anyhow::anyhow!("Commit proof next index overflow")
-                        })?
-                    };
                     let block_start = commits.first().unwrap().block_height as i64;
                     let ctx =
                         ProofRequest::CommitChainProofRequest {
-                            init_input: starts_from_genesis,
+                            init_input,
                             input_proof: args.input_proof.clone(),
                             output_proof: args.output_proof.clone(),
                             commit_info: args.commit_info.clone(),
@@ -133,8 +116,7 @@ pub(crate) fn spawn_commit_chain_proof_task(
                         proof_size as i64,
                         cycles,
                         CommitChainProofBuilder::name(),
-                        starts_from_genesis,
-                        next_commit_index,
+                        init_input,
                         proving_duration as i64,
                         proving_time as i64,
                         store::ProofState::Proven,
