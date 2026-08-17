@@ -49,9 +49,6 @@ pub struct Args {
     #[arg(long, default_value = "commits.bin")]
     pub commits: String,
 
-    #[arg(long, env)]
-    pub upgrade_commits: Option<String>,
-
     #[clap(long, env, default_value_t = 1)]
     pub batch_size: usize,
 
@@ -66,13 +63,6 @@ pub struct Args {
 
     #[clap(long, env, default_value = "output.bin")]
     pub output_proof: String,
-}
-
-impl Args {
-    /// Returns whether this request must rebuild from Commit Genesis.
-    pub fn starts_from_genesis(&self) -> bool {
-        self.init_input || self.upgrade_commits.is_some()
-    }
 }
 
 impl LongRunning for Args {
@@ -93,7 +83,6 @@ impl LongRunning for Args {
             next_args.start,
         );
         next_args.commits = format!("{}.commits", next_args.input_proof);
-        next_args.upgrade_commits = None;
         next_args
     }
 }
@@ -169,106 +158,6 @@ pub async fn fetch_commit_chain(
     std::fs::write(commits_file, serde_json::to_vec(&commits)?)
         .with_context(|| format!("write {commits_file} error"))?;
     Ok(commits)
-}
-
-/// Loads a full Genesis-to-latest commit replay for a Commit ProgramId upgrade.
-pub fn load_upgrade_commits(
-    path: &str,
-    latest_commit: &CircuitCommit,
-) -> anyhow::Result<Vec<CircuitCommit>> {
-    let commits: Vec<CircuitCommit> =
-        serde_json::from_slice(&std::fs::read(path).with_context(|| format!("read {path}"))?)
-            .with_context(|| format!("parse {path}"))?;
-    anyhow::ensure!(!commits.is_empty(), "upgrade commit replay must be non-empty");
-    anyhow::ensure!(
-        commits[0].commit_txn.compute_txid().as_byte_array() == &commits[0].genesis_txid,
-        "upgrade replay must start at its fixed Genesis"
-    );
-    anyhow::ensure!(
-        commits.last().map(|commit| commit.commit_txn.compute_txid())
-            == Some(latest_commit.commit_txn.compute_txid()),
-        "upgrade replay final transaction does not match current commit info"
-    );
-
-    Ok(commits)
-}
-
-/// Validates that `commits` is the complete ordered history represented by `output`.
-fn validate_full_commit_history(
-    commits: &[CircuitCommit],
-    output: &CommitChainCircuitOutput,
-) -> anyhow::Result<()> {
-    let genesis_txid = output.chain_state.genesis_txid;
-    let first_commit = commits.first().context("full commit history must be non-empty")?;
-    anyhow::ensure!(
-        first_commit.commit_txn.compute_txid().to_byte_array() == genesis_txid,
-        "full commit history must start at the proof's fixed Genesis"
-    );
-
-    for (index, commit) in commits.iter().enumerate() {
-        anyhow::ensure!(
-            commit.genesis_txid == genesis_txid,
-            "full commit history commit {index} has a different Genesis"
-        );
-    }
-
-    for (index, commits) in commits.windows(2).enumerate() {
-        let previous_txid = commits[0].commit_txn.compute_txid();
-        let next_input = commits[1].commit_txn.input.first().with_context(|| {
-            format!("full commit history commit {} has no update input", index + 1)
-        })?;
-        anyhow::ensure!(
-            next_input.previous_output.txid == previous_txid
-                && next_input.previous_output.vout == 0,
-            "full commit history commit {} does not spend the previous commit",
-            index + 1
-        );
-    }
-
-    let latest_txid =
-        commits.last().context("full commit history must be non-empty")?.commit_txn.compute_txid();
-    anyhow::ensure!(
-        latest_txid == output.chain_state.commit_txn.compute_txid(),
-        "full commit history tip does not match the proof output"
-    );
-    Ok(())
-}
-
-/// Builds the complete Genesis-to-tip history for the proof being saved.
-fn build_full_commit_history(
-    input_proof: &str,
-    circuit_input: &CommitChainCircuitInput,
-    output_public_values: &[u8],
-) -> anyhow::Result<Vec<CircuitCommit>> {
-    anyhow::ensure!(!circuit_input.commits.is_empty(), "commit proof input must be non-empty");
-    let current_output = decode_commit_chain_circuit_output(output_public_values);
-
-    let full_commits = match &circuit_input.prev_proof {
-        CommitChainPrevProofType::GenesisBlock => circuit_input.commits.clone(),
-        CommitChainPrevProofType::PrevProof => {
-            let previous_output =
-                decode_commit_chain_circuit_output(&circuit_input.zkm_public_values);
-            let history_path = format!("{input_proof}.all-commits");
-            let mut previous_commits: Vec<CircuitCommit> = serde_json::from_slice(
-                &std::fs::read(&history_path)
-                    .with_context(|| format!("read {history_path} error"))?,
-            )
-            .with_context(|| format!("parse {history_path} error"))?;
-            let previous_tip = previous_commits
-                .last()
-                .context("previous full commit history must be non-empty")?;
-            anyhow::ensure!(
-                previous_tip.commit_txn.compute_txid()
-                    == previous_output.chain_state.commit_txn.compute_txid(),
-                "previous full commit history tip does not match the predecessor proof output"
-            );
-            previous_commits.extend(circuit_input.commits.iter().cloned());
-            previous_commits
-        }
-    };
-
-    validate_full_commit_history(&full_commits, &current_output)?;
-    Ok(full_commits)
 }
 
 /// A program that aggregates the proofs of the simple program.
@@ -407,11 +296,11 @@ impl ProofBuilder for CommitChainProofBuilder {
     fn save_proof(
         &self,
         ctx: &proof_builder::ProofRequest,
-        input: &[u8],
+        _input: &[u8],
         _cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<(String, usize)> {
-        let ProofRequest::CommitChainProofRequest { input_proof, output_proof, .. } = ctx else {
+        let ProofRequest::CommitChainProofRequest { output_proof, commits, .. } = ctx else {
             anyhow::bail!("Invalid commit chain input");
         };
         //fs::write(&output_proof, bincode::serialize(&proof)?)?;
@@ -422,9 +311,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         //tracing::info!("Generate proof successfully, proof: {:?}", proof);
         //Ok((public_value_hex, proof_size))
 
-        let circuit_input: CommitChainCircuitInput = bincode::deserialize(input)?;
         let public_values = proof.public_values.to_vec();
-        let full_commits = build_full_commit_history(input_proof, &circuit_input, &public_values)?;
 
         std::fs::write(output_proof, proof.bytes())?;
         let public_value_hex = hex::encode(&public_values);
@@ -433,14 +320,10 @@ impl ProofBuilder for CommitChainProofBuilder {
         std::fs::write(format!("{}.public_inputs.bin", output_proof), public_values)?;
         std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
         std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
-        let latest_commit =
-            circuit_input.commits.last().context("commit proof input must be non-empty")?;
+        let latest_commit = commits.last().context("commit proof input must be non-empty")?;
         let commits_path = format!("{output_proof}.commits");
         std::fs::write(&commits_path, serde_json::to_vec(std::slice::from_ref(latest_commit))?)
             .with_context(|| format!("write {commits_path} error"))?;
-        let full_commits_path = format!("{output_proof}.all-commits");
-        std::fs::write(&full_commits_path, serde_json::to_vec(&full_commits)?)
-            .with_context(|| format!("write {full_commits_path} error"))?;
         Ok((public_value_hex, proof_size))
     }
 }
@@ -449,88 +332,7 @@ impl ProofBuilder for CommitChainProofBuilder {
 mod tests {
 
     use super::*;
-    use bitcoin::{Transaction, absolute::LockTime, transaction::Version};
     use tracing::info;
-
-    fn circuit_commit(transaction: Transaction, genesis_txid: [u8; 32]) -> CircuitCommit {
-        CircuitCommit {
-            commit_txn: transaction,
-            genesis_txid,
-            publisher_public_keys: vec![],
-            threshold: 0,
-            next_publisher_public_keys: None,
-            next_threshold: None,
-            sequencers: vec![],
-            genesis_evm_block_hash: [0; 32],
-            program_history_root: [1; 32],
-            block_height: 0,
-            proof_checkpoint_root: [1; 32],
-            authorized_program_ids: AuthorizedProgramIds {
-                header: [1; 32],
-                state: [2; 32],
-                commit: [3; 32],
-                watchtower: [4; 32],
-            },
-        }
-    }
-
-    #[test]
-    fn upgrade_replay_starts_from_genesis_once() {
-        let args = Args::try_parse_from([
-            "commit-chain-proof",
-            "--commit-info",
-            "commit-info.json",
-            "--upgrade-commits",
-            "upgrade-commits.json",
-        ])
-        .unwrap();
-        assert!(args.starts_from_genesis());
-
-        let next = args.rotate();
-        assert!(!next.starts_from_genesis());
-    }
-
-    #[test]
-    fn upgrade_replay_requires_fixed_genesis_and_latest_commit() {
-        let transaction = Transaction {
-            version: Version::TWO,
-            lock_time: LockTime::ZERO,
-            input: vec![],
-            output: vec![],
-        };
-        let genesis_txid = transaction.compute_txid().to_byte_array();
-        let commit = circuit_commit(transaction, genesis_txid);
-        let path = std::env::temp_dir().join(format!(
-            "commit-upgrade-replay-{}-{}.json",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-
-        std::fs::write(&path, serde_json::to_vec(&vec![commit.clone()]).unwrap()).unwrap();
-        assert_eq!(
-            load_upgrade_commits(path.to_str().unwrap(), &commit).unwrap(),
-            vec![commit.clone()]
-        );
-
-        let other_latest = circuit_commit(
-            Transaction {
-                version: Version::ONE,
-                lock_time: LockTime::ZERO,
-                input: vec![],
-                output: vec![],
-            },
-            genesis_txid,
-        );
-        assert!(load_upgrade_commits(path.to_str().unwrap(), &other_latest).is_err());
-
-        let wrong_genesis = CircuitCommit { genesis_txid: [9; 32], ..commit.clone() };
-        std::fs::write(&path, serde_json::to_vec(&vec![wrong_genesis]).unwrap()).unwrap();
-        assert!(load_upgrade_commits(path.to_str().unwrap(), &commit).is_err());
-
-        std::fs::write(&path, serde_json::to_vec(&Vec::<CircuitCommit>::new()).unwrap()).unwrap();
-        assert!(load_upgrade_commits(path.to_str().unwrap(), &commit).is_err());
-        std::fs::remove_file(path).unwrap();
-    }
 
     #[test]
     #[ignore = "local test"]

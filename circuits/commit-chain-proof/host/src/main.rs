@@ -1,6 +1,6 @@
 //! Generate commit chain proof
 use clap::Parser;
-use commit_chain_proof::{Args, CommitChainProofBuilder, fetch_commit_chain, load_upgrade_commits};
+use commit_chain_proof::{Args, CommitChainProofBuilder, fetch_commit_chain};
 use proof_builder::{ProofBuilder, ProofRequest};
 
 #[tokio::main]
@@ -17,7 +17,7 @@ async fn main() {
         return;
     }
 
-    let mut commits = fetch_commit_chain(
+    let commits = fetch_commit_chain(
         &args.esplora_url,
         &args.commit_info,
         &args.commits,
@@ -25,11 +25,8 @@ async fn main() {
     )
     .await
     .unwrap();
-    if let Some(path) = args.upgrade_commits.as_deref() {
-        commits = load_upgrade_commits(path, &commits[0]).unwrap();
-    }
     let ctx = ProofRequest::CommitChainProofRequest {
-        init_input: args.starts_from_genesis(),
+        init_input: args.init_input,
         input_proof: args.input_proof.clone(),
         output_proof: args.output_proof.clone(),
         commit_info: args.commit_info.clone(),
