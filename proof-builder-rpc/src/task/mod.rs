@@ -949,17 +949,6 @@ mod tests {
     use store::create_local_db;
     use uuid::Uuid;
 
-    fn long_running_task(chain_name: &str, block_start: i64, path: &str) -> LongRunningTaskProof {
-        LongRunningTaskProof {
-            block_start,
-            block_end: block_start + 10,
-            chain_name: chain_name.to_string(),
-            path_to_proof: Some(path.to_string()),
-            proof_state: ProofState::Proven.to_i64(),
-            ..LongRunningTaskProof::default()
-        }
-    }
-
     #[tokio::test]
     async fn test_add_watchtower_task() {
         let db_path = std::env::var("TEST_DB")
