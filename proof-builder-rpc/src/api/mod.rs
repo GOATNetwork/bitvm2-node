@@ -224,7 +224,6 @@ mod tests {
         let instance_id = "00112233-4455-6677-8899-aabbccddeeff".to_string();
         let graph_id = "11112233-4455-6677-8899-aabbccddeeff".to_string();
         let authorization_chain = Arc::new(TestAuthorizationChain::default());
-        authorization_chain.set_operator(operator.x_only_public_key().0, [1; 20], 100, 100);
         authorization_chain.set_graph(
             Uuid::parse_str(&instance_id)?,
             Uuid::parse_str(&graph_id)?,
@@ -408,7 +407,6 @@ mod tests {
         let gateway_b = gateway(2);
         let gateway_unknown = gateway(3);
         let chain_a = Arc::new(TestAuthorizationChain::default());
-        chain_a.set_operator(operator.x_only_public_key().0, [1; 20], 100, 100);
         chain_a.set_graph(
             Uuid::parse_str(&instance_id)?,
             Uuid::parse_str(&graph_id)?,

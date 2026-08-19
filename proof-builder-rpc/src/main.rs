@@ -169,21 +169,12 @@ async fn goat_clients_from_env() -> anyhow::Result<AuthorizationChains> {
             discovery_client.gateway_get_committee_management().await.with_context(|| {
                 format!("failed to discover CommitteeManagement from Gateway {gateway_address}")
             })?;
-        let stake_management =
-            discovery_client.gateway_get_stake_management().await.with_context(|| {
-                format!("failed to discover StakeManagement from Gateway {gateway_address}")
-            })?;
         anyhow::ensure!(
             committee_management != [0; 20],
             "Gateway {gateway_address} returned a zero CommitteeManagement address"
         );
-        anyhow::ensure!(
-            stake_management != [0; 20],
-            "Gateway {gateway_address} returned a zero StakeManagement address"
-        );
         let config = gateway_config
-            .with_committee_management_address(Some(Address::from_slice(&committee_management)))
-            .with_stake_management_address(Some(Address::from_slice(&stake_management)));
+            .with_committee_management_address(Some(Address::from_slice(&committee_management)));
         let chain: Arc<dyn AuthorizationChain> = Arc::new(GOATClient::new(config, network));
         chains.insert(gateway_address, chain);
     }

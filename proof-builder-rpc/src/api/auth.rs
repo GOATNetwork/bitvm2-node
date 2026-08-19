@@ -20,12 +20,6 @@ pub(crate) type AuthorizationChains = HashMap<Address, Arc<dyn AuthorizationChai
 
 #[async_trait]
 pub(crate) trait AuthorizationChain: Send + Sync {
-    /// Resolves an Operator x-only public key to its registered stake address.
-    async fn operator_address(&self, public_key: &[u8; 32]) -> anyhow::Result<[u8; 20]>;
-    /// Returns the Gateway's current minimum Operator stake.
-    async fn minimum_operator_stake(&self) -> anyhow::Result<u64>;
-    /// Returns the stake currently locked by one registered Operator address.
-    async fn locked_operator_stake(&self, operator: &[u8; 20]) -> anyhow::Result<u64>;
     /// Returns the Gateway data registered for one graph.
     async fn graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData>;
     /// Returns all graph IDs registered under one instance.
@@ -36,18 +30,6 @@ pub(crate) trait AuthorizationChain: Send + Sync {
 
 #[async_trait]
 impl AuthorizationChain for GOATClient {
-    async fn operator_address(&self, public_key: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
-        self.stake_mana_pubkey_to_address(public_key).await
-    }
-
-    async fn minimum_operator_stake(&self) -> anyhow::Result<u64> {
-        self.gateway_get_min_stake_amount().await
-    }
-
-    async fn locked_operator_stake(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
-        self.stake_mana_lock_stake_of(operator).await
-    }
-
     async fn graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
         self.gateway_get_graph_data(graph_id).await
     }
@@ -105,7 +87,7 @@ impl RequestAuthorizer {
         Ok(signer)
     }
 
-    /// Checks current Operator registration, stake, graph ownership, and instance membership.
+    /// Checks current graph ownership and instance membership for an Operator.
     pub(crate) async fn authorize_operator(
         &self,
         signer: &XOnlyPublicKey,
@@ -115,19 +97,6 @@ impl RequestAuthorizer {
     ) -> AuthResult<()> {
         let chain = self.chain_for_gateway(gateway_address)?;
         let signer_bytes = signer.serialize();
-        let operator_address =
-            chain.operator_address(&signer_bytes).await.map_err(contract_unavailable)?;
-        if operator_address == [0; 20] {
-            return Err(forbidden("operator signer is not registered"));
-        }
-
-        let minimum_stake = chain.minimum_operator_stake().await.map_err(contract_unavailable)?;
-        let locked_stake =
-            chain.locked_operator_stake(&operator_address).await.map_err(contract_unavailable)?;
-        if locked_stake < minimum_stake {
-            return Err(forbidden("operator signer has insufficient locked stake"));
-        }
-
         let graph_data = chain.graph_data(graph_id).await.map_err(contract_unavailable)?;
         if graph_data.operator_pubkey == [0; 32] {
             return Err(forbidden("graph is not registered"));
@@ -263,9 +232,6 @@ pub(crate) mod test_support {
 
     #[derive(Default)]
     struct TestAuthorizationState {
-        operator_addresses: HashMap<[u8; 32], [u8; 20]>,
-        locked_stakes: HashMap<[u8; 20], u64>,
-        minimum_stake: u64,
         graphs: HashMap<Uuid, GraphData>,
         instance_graphs: HashMap<Uuid, Vec<Uuid>>,
         watchtowers: HashSet<XOnlyPublicKey>,
@@ -278,26 +244,6 @@ pub(crate) mod test_support {
     }
 
     impl TestAuthorizationChain {
-        pub(crate) fn set_operator(
-            &self,
-            public_key: XOnlyPublicKey,
-            address: [u8; 20],
-            locked_stake: u64,
-            minimum_stake: u64,
-        ) {
-            let mut state = self.state.lock().unwrap();
-            state.operator_addresses.insert(public_key.serialize(), address);
-            state.locked_stakes.insert(address, locked_stake);
-            state.minimum_stake = minimum_stake;
-        }
-
-        pub(crate) fn remove_operator(&self, public_key: &XOnlyPublicKey) {
-            let mut state = self.state.lock().unwrap();
-            if let Some(address) = state.operator_addresses.remove(&public_key.serialize()) {
-                state.locked_stakes.remove(&address);
-            }
-        }
-
         pub(crate) fn set_graph(&self, instance_id: Uuid, graph_id: Uuid, owner: XOnlyPublicKey) {
             let mut state = self.state.lock().unwrap();
             state.graphs.insert(graph_id, graph_data(owner));
@@ -323,24 +269,6 @@ pub(crate) mod test_support {
 
     #[async_trait]
     impl AuthorizationChain for TestAuthorizationChain {
-        async fn operator_address(&self, public_key: &[u8; 32]) -> anyhow::Result<[u8; 20]> {
-            let state = self.state.lock().unwrap();
-            ensure_available(&state)?;
-            Ok(state.operator_addresses.get(public_key).copied().unwrap_or([0; 20]))
-        }
-
-        async fn minimum_operator_stake(&self) -> anyhow::Result<u64> {
-            let state = self.state.lock().unwrap();
-            ensure_available(&state)?;
-            Ok(state.minimum_stake)
-        }
-
-        async fn locked_operator_stake(&self, operator: &[u8; 20]) -> anyhow::Result<u64> {
-            let state = self.state.lock().unwrap();
-            ensure_available(&state)?;
-            Ok(state.locked_stakes.get(operator).copied().unwrap_or_default())
-        }
-
         async fn graph_data(&self, graph_id: &Uuid) -> anyhow::Result<GraphData> {
             let state = self.state.lock().unwrap();
             ensure_available(&state)?;
@@ -506,7 +434,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn operator_authorization_uses_current_registration_stake_and_graph_owner() {
+    async fn operator_authorization_checks_graph_owner() {
         let operator = keypair(7).x_only_public_key().0;
         let other_operator = keypair(8).x_only_public_key().0;
         let instance_id = Uuid::new_v4();
@@ -514,26 +442,6 @@ mod tests {
         let chain = Arc::new(TestAuthorizationChain::default());
         let authorizer = RequestAuthorizer::new(chains(gateway(1), chain.clone()));
 
-        assert_eq!(
-            authorizer
-                .authorize_operator(&operator, None, &instance_id, &graph_id)
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::FORBIDDEN
-        );
-
-        chain.set_operator(operator, [1; 20], 99, 100);
-        assert_eq!(
-            authorizer
-                .authorize_operator(&operator, None, &instance_id, &graph_id)
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::FORBIDDEN
-        );
-
-        chain.set_operator(operator, [1; 20], 100, 100);
         assert_eq!(
             authorizer
                 .authorize_operator(&operator, None, &instance_id, &graph_id)
@@ -557,16 +465,6 @@ mod tests {
         assert!(
             authorizer.authorize_operator(&operator, None, &instance_id, &graph_id).await.is_ok()
         );
-
-        chain.remove_operator(&operator);
-        assert_eq!(
-            authorizer
-                .authorize_operator(&operator, None, &instance_id, &graph_id)
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::FORBIDDEN
-        );
     }
 
     #[tokio::test]
@@ -576,7 +474,6 @@ mod tests {
         let other_instance_id = Uuid::new_v4();
         let graph_id = Uuid::new_v4();
         let chain = Arc::new(TestAuthorizationChain::default());
-        chain.set_operator(operator, [1; 20], 100, 100);
         chain.set_graph(other_instance_id, graph_id, operator);
         let authorizer = RequestAuthorizer::new(chains(gateway(1), chain.clone()));
 
@@ -644,6 +541,7 @@ mod tests {
     #[tokio::test]
     async fn authorization_selects_gateway_and_does_not_cache_chain_state() {
         let operator = keypair(7).x_only_public_key().0;
+        let other_operator = keypair(8).x_only_public_key().0;
         let watchtower = keypair(9).x_only_public_key().0;
         let instance_id = Uuid::new_v4();
         let graph_id = Uuid::new_v4();
@@ -651,7 +549,6 @@ mod tests {
         let gateway_b = gateway(2);
         let chain_a = Arc::new(TestAuthorizationChain::default());
         let chain_b = Arc::new(TestAuthorizationChain::default());
-        chain_a.set_operator(operator, [1; 20], 100, 100);
         chain_a.set_graph(instance_id, graph_id, operator);
         chain_a.add_watchtower(watchtower);
         let chain_a_trait: Arc<dyn AuthorizationChain> = chain_a.clone();
@@ -702,7 +599,7 @@ mod tests {
             StatusCode::FORBIDDEN
         );
 
-        chain_a.remove_operator(&operator);
+        chain_a.set_graph_owner(graph_id, other_operator);
         chain_a.remove_watchtower(&watchtower);
         assert_eq!(
             authorizer

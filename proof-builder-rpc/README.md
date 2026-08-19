@@ -26,10 +26,10 @@ GOAT_GATEWAY_CONTRACT_ADDRESS=<gateway-address-1>,<gateway-address-2>
 ```
 
 Proof Builder accepts one or more comma-separated Gateway addresses. All configured Gateways use
-the same GOAT network and RPC. It discovers the CommitteeManagement and StakeManagement contracts
-through each Gateway and exits if any configured contract set cannot be initialized. Operator
-requests require current registration, sufficient locked stake, graph ownership, and a matching
-instance/graph relation.
+the same GOAT network and RPC. It discovers the CommitteeManagement contract through each Gateway
+and exits if any configured contract set cannot be initialized. Operator requests require graph
+ownership and a matching instance/graph relation. Operator registration and stake are enforced
+when graphs are admitted and are not rechecked for existing proof tasks.
 Watchtower requests require membership in the current global Watchtower registry and the request
 public key must match the authenticated signer. Contract authorization is queried for every
 request; failures return HTTP 503 rather than falling back to stale authorization data.
