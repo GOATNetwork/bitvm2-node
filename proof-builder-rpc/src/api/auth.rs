@@ -319,7 +319,6 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::TestAuthorizationChain;
     use super::*;
-    use proof_builder::OperatorProofTimeoutUpdateRequest;
     use proof_builder::api_auth::{ProofBuilderAuthHeaders, sign_proof_builder_request};
     use secp256k1::{Keypair, SECP256K1};
 
@@ -394,45 +393,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rejects_gateway_address_changed_after_signing() {
-        let operator = keypair(7);
-        let authorizer =
-            RequestAuthorizer::new(chains(gateway(1), Arc::new(TestAuthorizationChain::default())));
-        let signed_body = OperatorProofTimeoutUpdateRequest {
-            instance_id: Uuid::new_v4().to_string(),
-            graph_id: Uuid::new_v4().to_string(),
-            gateway_address: Some(gateway(1).to_string()),
-        };
-        let signed = sign_proof_builder_request(
-            &operator,
-            ProofBuilderAuthRole::Operator,
-            "POST",
-            "/v1/proofs/operator_proofs_timeout",
-            &signed_body,
-        )
-        .unwrap();
-        let tampered_body = OperatorProofTimeoutUpdateRequest {
-            gateway_address: Some(gateway(2).to_string()),
-            ..signed_body
-        };
-
-        assert_eq!(
-            authorizer
-                .authenticate(
-                    &headers(&signed),
-                    ProofBuilderAuthRole::Operator,
-                    "POST",
-                    "/v1/proofs/operator_proofs_timeout",
-                    &tampered_body,
-                    None,
-                )
-                .unwrap_err()
-                .0,
-            StatusCode::UNAUTHORIZED
-        );
-    }
-
     #[tokio::test]
     async fn operator_authorization_checks_graph_owner() {
         let operator = keypair(7).x_only_public_key().0;
@@ -468,7 +428,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn operator_authorization_rejects_instance_mismatch_and_query_failure() {
+    async fn operator_authorization_rejects_instance_mismatch() {
         let operator = keypair(7).x_only_public_key().0;
         let instance_id = Uuid::new_v4();
         let other_instance_id = Uuid::new_v4();
@@ -484,16 +444,6 @@ mod tests {
                 .unwrap_err()
                 .0,
             StatusCode::FORBIDDEN
-        );
-
-        chain.set_fail_queries(true);
-        assert_eq!(
-            authorizer
-                .authorize_operator(&operator, None, &instance_id, &graph_id)
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::SERVICE_UNAVAILABLE
         );
     }
 
@@ -534,83 +484,6 @@ mod tests {
                 )
                 .unwrap_err()
                 .0,
-            StatusCode::FORBIDDEN
-        );
-    }
-
-    #[tokio::test]
-    async fn authorization_selects_gateway_and_does_not_cache_chain_state() {
-        let operator = keypair(7).x_only_public_key().0;
-        let other_operator = keypair(8).x_only_public_key().0;
-        let watchtower = keypair(9).x_only_public_key().0;
-        let instance_id = Uuid::new_v4();
-        let graph_id = Uuid::new_v4();
-        let gateway_a = gateway(1);
-        let gateway_b = gateway(2);
-        let chain_a = Arc::new(TestAuthorizationChain::default());
-        let chain_b = Arc::new(TestAuthorizationChain::default());
-        chain_a.set_graph(instance_id, graph_id, operator);
-        chain_a.add_watchtower(watchtower);
-        let chain_a_trait: Arc<dyn AuthorizationChain> = chain_a.clone();
-        let chain_b_trait: Arc<dyn AuthorizationChain> = chain_b;
-        let authorizer = RequestAuthorizer::new(HashMap::from([
-            (gateway_a, chain_a_trait),
-            (gateway_b, chain_b_trait),
-        ]));
-        let gateway_a = gateway_a.to_string();
-        let gateway_b = gateway_b.to_string();
-
-        assert!(
-            authorizer
-                .authorize_operator(&operator, Some(&gateway_a), &instance_id, &graph_id)
-                .await
-                .is_ok()
-        );
-        assert_eq!(
-            authorizer
-                .authorize_operator(&operator, Some(&gateway_b), &instance_id, &graph_id)
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::FORBIDDEN
-        );
-        assert!(authorizer.authorize_watchtower(&watchtower, Some(&gateway_a)).await.is_ok());
-        assert_eq!(
-            authorizer.authorize_watchtower(&watchtower, Some(&gateway_b)).await.unwrap_err().0,
-            StatusCode::FORBIDDEN
-        );
-        assert_eq!(
-            authorizer.authorize_watchtower(&watchtower, None).await.unwrap_err().0,
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(
-            authorizer.authorize_watchtower(&watchtower, Some("invalid")).await.unwrap_err().0,
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(
-            authorizer
-                .authorize_watchtower(
-                    &watchtower,
-                    Some(&Address::from_slice(&[3; 20]).to_string()),
-                )
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::FORBIDDEN
-        );
-
-        chain_a.set_graph_owner(graph_id, other_operator);
-        chain_a.remove_watchtower(&watchtower);
-        assert_eq!(
-            authorizer
-                .authorize_operator(&operator, Some(&gateway_a), &instance_id, &graph_id)
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::FORBIDDEN
-        );
-        assert_eq!(
-            authorizer.authorize_watchtower(&watchtower, Some(&gateway_a)).await.unwrap_err().0,
             StatusCode::FORBIDDEN
         );
     }

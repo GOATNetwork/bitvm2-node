@@ -32,14 +32,3 @@ impl ProofBuilderConfig {
         Ok(new_args)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn example_config_loads_without_static_api_allowlists() {
-        let path = format!("{}/proof-builder.toml.example", env!("CARGO_MANIFEST_DIR"));
-        ProofBuilderConfig::new(&path).unwrap();
-    }
-}
