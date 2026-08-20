@@ -1,4 +1,5 @@
 use crate::api::ApiState;
+use crate::api::auth::AuthResult;
 use crate::api::metrics_service::ApiResultGuard;
 use crate::api::response::{ApiErrorExt, ApiResult, ok_response};
 use crate::api::routes;
@@ -9,7 +10,7 @@ use crate::task::{
 };
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use proof_builder::api_auth::ProofBuilderAuthRole;
 use proof_builder::{
     ChainProofDescRequest, OperatorProofDescRequest, OperatorProofRequest, OperatorProofResponse,
@@ -26,12 +27,15 @@ fn record_invalid<T, E>(api_result: &mut ApiResultGuard, result: Result<T, E>) -
     result.inspect_err(|_| api_result.set("invalid"))
 }
 
-/// Marks authentication failures as unauthorized API results while preserving the response.
-fn record_unauthorized<T, E>(
-    api_result: &mut ApiResultGuard,
-    result: Result<T, E>,
-) -> Result<T, E> {
-    result.inspect_err(|_| api_result.set("unauthorized"))
+/// Records local authorization failures separately from unavailable chain queries.
+fn record_auth_result<T>(api_result: &mut ApiResultGuard, result: AuthResult<T>) -> AuthResult<T> {
+    result.inspect_err(|(status, _)| {
+        api_result.set(match *status {
+            StatusCode::BAD_REQUEST => "invalid",
+            StatusCode::SERVICE_UNAVAILABLE => "unavailable",
+            _ => "unauthorized",
+        });
+    })
 }
 
 #[axum::debug_handler]
@@ -185,9 +189,9 @@ pub(super) async fn post_operator_proof_task(
     Json(payload): Json<OperatorProofRequest>,
 ) -> ApiResult<OperatorProofResponse> {
     let mut api_result = api_state.metrics_state.api_result("operator_submit");
-    record_unauthorized(
+    let signer = record_auth_result(
         &mut api_result,
-        api_state.auth.authorize(
+        api_state.auth.authenticate(
             &headers,
             ProofBuilderAuthRole::Operator,
             "POST",
@@ -203,6 +207,18 @@ pub(super) async fn post_operator_proof_task(
     let graph_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.graph_id, "graph_id"),
+    )?;
+    record_auth_result(
+        &mut api_result,
+        api_state
+            .auth
+            .authorize_operator(
+                &signer,
+                payload.gateway_address.as_deref(),
+                &instance_id,
+                &graph_id,
+            )
+            .await,
     )?;
     let operator_proof = find_operator_task(&api_state.local_db, instance_id, graph_id)
         .await
@@ -266,9 +282,9 @@ pub(super) async fn update_operator_proof_task_timeout(
     Json(payload): Json<OperatorProofTimeoutUpdateRequest>,
 ) -> ApiResult<OperatorProofTimeoutUpdateResponse> {
     let mut api_result = api_state.metrics_state.api_result("operator_timeout");
-    record_unauthorized(
+    let signer = record_auth_result(
         &mut api_result,
-        api_state.auth.authorize(
+        api_state.auth.authenticate(
             &headers,
             ProofBuilderAuthRole::Operator,
             "POST",
@@ -284,6 +300,18 @@ pub(super) async fn update_operator_proof_task_timeout(
     let graph_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.graph_id, "graph_id"),
+    )?;
+    record_auth_result(
+        &mut api_result,
+        api_state
+            .auth
+            .authorize_operator(
+                &signer,
+                payload.gateway_address.as_deref(),
+                &instance_id,
+                &graph_id,
+            )
+            .await,
     )?;
     match update_operator_task_state(
         &api_state.local_db,
@@ -322,9 +350,9 @@ pub(super) async fn post_watchtower_proof_task(
     Json(payload): Json<WatchtowerProofRequest>,
 ) -> ApiResult<WatchtowerProofResponse> {
     let mut api_result = api_state.metrics_state.api_result("watchtower_submit");
-    record_unauthorized(
+    let signer = record_auth_result(
         &mut api_result,
-        api_state.auth.authorize(
+        api_state.auth.authenticate(
             &headers,
             ProofBuilderAuthRole::Watchtower,
             "POST",
@@ -340,6 +368,10 @@ pub(super) async fn post_watchtower_proof_task(
     let graph_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.graph_id, "graph_id"),
+    )?;
+    record_auth_result(
+        &mut api_result,
+        api_state.auth.authorize_watchtower(&signer, payload.gateway_address.as_deref()).await,
     )?;
     let challenge_init_txid = record_invalid(
         &mut api_result,
@@ -408,9 +440,9 @@ pub(super) async fn update_watchtower_proof_task_timeout(
     Json(payload): Json<WatchtowerProofTimeoutUpdateRequest>,
 ) -> ApiResult<WatchtowerProofTimeoutUpdateResponse> {
     let mut api_result = api_state.metrics_state.api_result("watchtower_timeout");
-    record_unauthorized(
+    let signer = record_auth_result(
         &mut api_result,
-        api_state.auth.authorize(
+        api_state.auth.authenticate(
             &headers,
             ProofBuilderAuthRole::Watchtower,
             "POST",
@@ -426,6 +458,10 @@ pub(super) async fn update_watchtower_proof_task_timeout(
     let graph_id = record_invalid(
         &mut api_result,
         InputValidator::validate_uuid(&payload.graph_id, "graph_id"),
+    )?;
+    record_auth_result(
+        &mut api_result,
+        api_state.auth.authorize_watchtower(&signer, payload.gateway_address.as_deref()).await,
     )?;
     match update_watchtower_task_state(
         &api_state.local_db,

@@ -2435,6 +2435,7 @@ pub async fn get_watchtower_commitment(
         let payload = WatchtowerProofRequest {
             instance_id: instance_id.to_string(),
             graph_id: graph_id.to_string(),
+            gateway_address: Some(env::get_goat_gateway_contract_from_env().to_string()),
             public_key: env::get_node_pubkey()?.to_string(),
             challenge_init_txid: challenge_init_txid.0.to_string(),
             execution_layer_block_number: graph.proceed_withdraw_height, // NOTE: this number may be zero
@@ -2743,6 +2744,7 @@ pub async fn get_operator_proof(
     let payload = OperatorProofRequest {
         instance_id: instance_id.to_string(),
         graph_id: graph_id.to_string(),
+        gateway_address: Some(env::get_goat_gateway_contract_from_env().to_string()),
         operator_committed_blockhash,
         execution_layer_block_number: graph.proceed_withdraw_height,
         watchtower_challenge_txids,
@@ -3890,6 +3892,7 @@ pub async fn notify_to_cancel_proof_task(
                 let payload = WatchtowerProofTimeoutUpdateRequest {
                     instance_id: graph.instance_id.to_string(),
                     graph_id: graph.graph_id.to_string(),
+                    gateway_address: Some(env::get_goat_gateway_contract_from_env().to_string()),
                     public_key: get_node_pubkey()?.to_string(),
                 };
                 let auth_keypair = get_bitvm_key()?;

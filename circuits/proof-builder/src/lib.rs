@@ -200,6 +200,8 @@ pub struct ProofDescResponse {
 pub struct OperatorProofRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
     pub operator_committed_blockhash: String,
     pub execution_layer_block_number: i64,
     pub watchtower_challenge_txids: Vec<Option<String>>,
@@ -251,6 +253,8 @@ pub struct OperatorProofResponse {
 pub struct WatchtowerProofRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
     pub public_key: String,
     pub challenge_init_txid: String,
     pub execution_layer_block_number: i64,
@@ -266,6 +270,8 @@ pub struct WatchtowerProofResponse {
 pub struct OperatorProofTimeoutUpdateRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OperatorProofTimeoutUpdateResponse {
@@ -279,6 +285,8 @@ pub struct OperatorProofTimeoutUpdateResponse {
 pub struct WatchtowerProofTimeoutUpdateRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
     pub public_key: String,
 }
 
