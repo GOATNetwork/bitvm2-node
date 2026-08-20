@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="GOATNetwork/bitvm2-node"
+REPO="GOATNetwork/bitvm-node"
 API_URL="https://api.github.com/repos/${REPO}/releases"
 INSTALL_DIR="./bin"
 VERSION_FILE=".bitvm-version"

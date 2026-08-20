@@ -18,7 +18,7 @@ state machines and the peg-out timelock configuration against real races and
 boundary conditions found in the Rust implementation. This started as an
 **audit pass**: the specs proved several real bugs existed and proved a
 correct fix design for each. **As of commit
-[`991faaa`](https://github.com/GOATNetwork/bitvm2-node/commit/991faaabdb56c747103e8f1c6d6477c638ccfc4c),
+[`991faaa`](https://github.com/GOATNetwork/bitvm-node/commit/991faaabdb56c747103e8f1c6d6477c638ccfc4c),
 all 8 of those findings have been fixed and verified in the shipped Rust
 code** - see `audit/TLAPlus-20260630.md` for the full report, including what
 each real applied fix looks like.

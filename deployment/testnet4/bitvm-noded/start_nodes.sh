@@ -23,7 +23,7 @@ sh -x ./run.sh
 cd ..
 
 sleep 1
-echo "start challenger_0"
-cd challenger_0
+echo "start verifier_0"
+cd verifier_0
 sh -x ./run.sh
 cd ..

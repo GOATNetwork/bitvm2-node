@@ -3,7 +3,7 @@ version: '3.8'
 services:
 
   committee_0:
-    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    image: ghcr.io/goatnetwork/bitvm-node:${TAG:-0.1.0}
     container_name: committee_0
     volumes:
       - ./committee_0:/var/data
@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   committee_1:
-    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    image: ghcr.io/goatnetwork/bitvm-node:${TAG:-0.1.0}
     container_name: committee_1
     volumes:
       - ./committee_1:/var/data
@@ -30,23 +30,23 @@ services:
     depends_on:
       - committee_0
 
-  challenger_0:
-    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
-    container_name: challenger_0
+  verifier_0:
+    image: ghcr.io/goatnetwork/bitvm-node:${TAG:-0.1.0}
+    container_name: verifier_0
     volumes:
-      - ./challenger_0:/var/data
-      - ./challenger_0/.env:/app/.env
+      - ./verifier_0:/var/data
+      - ./verifier_0/.env:/app/.env
     ports:
       - "8902:9100"
       - "8445:8443"
     env_file:
-      - ./challenger_0/.env
+      - ./verifier_0/.env
     restart: unless-stopped
     depends_on:
       - committee_0
 
   operator_0:
-    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    image: ghcr.io/goatnetwork/bitvm-node:${TAG:-0.1.0}
     container_name: operator_0
     volumes:
       - ./operator_0:/var/data
@@ -61,7 +61,7 @@ services:
       - committee_0
 
   watchtower_0:
-    image: ghcr.io/goatnetwork/bitvm2-node:${TAG:-0.1.0}
+    image: ghcr.io/goatnetwork/bitvm-node:${TAG:-0.1.0}
     container_name: watchtower_0
     volumes:
       - ./watchtower_0:/var/data
