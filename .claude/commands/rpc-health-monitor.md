@@ -84,12 +84,12 @@ Monitor goat-node RPC health by polling graph or instance status counts, node on
 ```bash
 # testnet4 public RPC
 python3 ./.claude/commands/rpc-health-monitor.py \
-  --base-url https://bitvm2-api-testnet4.goat.network \
+  --base-url https://bitvm3-api-testnet4.goat.network \
   --once
 
 # override proof-builder lag thresholds and chain RPC sources
 python3 ./.claude/commands/rpc-health-monitor.py \
-   --base-url https://bitvm2-api-testnet4.goat.network \
+   --base-url https://bitvm3-api-testnet4.goat.network \
    --header-chain-height-url https://mempool.space/testnet4 \
    --state-chain-rpc-url https://rpc.testnet3.goat.network \
    --header-chain-lag-alert-blocks 30 \
