@@ -51,6 +51,16 @@ const P2P_INBOX_LEASE_SECS: i64 = 5 * 60;
 const P2P_INBOX_LEASE_RENEW_INTERVAL_SECS: u64 = 60;
 const P2P_INBOX_ENQUEUE_ATTEMPTS: usize = 3;
 
+/// Delivery semantics for externally received P2P messages.
+///
+/// Protocol-state messages remain durable. Ephemeral messages carry
+/// recoverable peer state or graph synchronization data and can be resent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum P2PMessageDelivery {
+    Inbox,
+    Immediate,
+}
+
 struct ActiveHeavyTask {
     message_id: String,
     lease_token: String,
@@ -294,6 +304,18 @@ pub enum GOATMessageContent {
 }
 
 impl GOATMessageContent {
+    /// New messages default to the durable inbox and must explicitly opt into
+    /// immediate processing when they are safe to drop.
+    pub const fn p2p_delivery(&self) -> P2PMessageDelivery {
+        match self {
+            Self::RequestNodeInfo(_)
+            | Self::ResponseNodeInfo(_)
+            | Self::SyncGraphRequest(_)
+            | Self::SyncGraph(_) => P2PMessageDelivery::Immediate,
+            _ => P2PMessageDelivery::Inbox,
+        }
+    }
+
     /// Stable message name for logs/metrics.  Keep this independent of `Debug`, whose
     /// output can include protocol payloads (and, for proofs, be very large).
     pub fn event_type(&self) -> &'static str {
@@ -690,11 +712,15 @@ impl GOATMessage {
     }
 }
 
-/// Persist externally received P2P messages before dispatching them. The
-/// network event loop only decodes and enqueues; protocol work runs from the
-/// durable inbox on a regular tick.
-pub async fn enqueue_p2p_message(
+/// Decode an externally received P2P message and route it by delivery semantics.
+#[allow(clippy::too_many_arguments)]
+pub async fn handle_inbound_p2p_message(
+    swarm: &mut Swarm<AllBehaviours>,
     local_db: &LocalDB,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
+    http_client: &HttpAsyncClient,
+    soldering_builder: &Option<Arc<BabeBundleBuilder>>,
     actor: Actor,
     from_peer_id: PeerId,
     id: MessageId,
@@ -708,9 +734,63 @@ pub async fn enqueue_p2p_message(
         }
         Err(error) => {
             metrics_state.record_p2p_receive(false);
-            return Err(error).context("decode inbound P2P message before enqueue");
+            return Err(error).context("decode inbound P2P message");
         }
     };
+
+    if let Err(error) = update_node_timestamp(local_db, &from_peer_id.to_string()).await {
+        tracing::warn!(
+            event = "p2p_message",
+            outcome = "peer_timestamp_update_failed",
+            message_id = %hex::encode(&id.0),
+            from_peer_id = %from_peer_id,
+            error = %error,
+            "received inbound P2P message but failed to update peer timestamp"
+        );
+    }
+
+    match decoded.content.p2p_delivery() {
+        P2PMessageDelivery::Inbox => {
+            enqueue_p2p_message(local_db, actor, from_peer_id, id, message, &decoded).await
+        }
+        P2PMessageDelivery::Immediate => {
+            tracing::debug!(
+                event = "p2p_message",
+                delivery = "immediate",
+                message_id = %hex::encode(&id.0),
+                message_type = decoded.content.event_type(),
+                from_peer_id = %from_peer_id,
+                content_size = message.len(),
+                "dispatching ephemeral P2P message"
+            );
+            dispatch_decoded_p2p_message(
+                swarm,
+                local_db,
+                btc_client,
+                goat_client,
+                http_client,
+                soldering_builder,
+                actor,
+                from_peer_id,
+                id,
+                decoded,
+                metrics_state,
+            )
+            .await
+        }
+    }
+}
+
+/// Persist a decoded durable P2P message. Protocol work runs from the inbox on
+/// a regular tick.
+async fn enqueue_p2p_message(
+    local_db: &LocalDB,
+    actor: Actor,
+    from_peer_id: PeerId,
+    id: MessageId,
+    message: &[u8],
+    decoded: &GOATMessage,
+) -> Result<()> {
     let message_id = hex::encode(&id.0);
     let inbox_message = P2pInboxMessage {
         message_id: message_id.clone(),
@@ -751,16 +831,6 @@ pub async fn enqueue_p2p_message(
         }
     }
     let inserted = inserted.expect("P2P inbox insert loop exits only after success or error");
-    if let Err(error) = update_node_timestamp(local_db, &from_peer_id.to_string()).await {
-        tracing::warn!(
-            event = "p2p_inbox",
-            outcome = "peer_timestamp_update_failed",
-            message_id = %message_id,
-            from_peer_id = %from_peer_id,
-            error = %error,
-            "stored inbound P2P message but failed to update peer timestamp"
-        );
-    }
     tracing::info!(
         event = "p2p_inbox",
         outcome = if inserted { "enqueued" } else { "duplicate" },
@@ -1447,9 +1517,39 @@ pub async fn recv_and_dispatch(
     message: &[u8],
     metrics_state: &MetricsState,
 ) -> Result<()> {
-    // Determine whether the message comes from this node itself to optionally skip validations
-    let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
     let message = GOATMessage::deserialize_message(message).await?;
+    dispatch_decoded_p2p_message(
+        swarm,
+        local_db,
+        btc_client,
+        goat_client,
+        http_client,
+        soldering_builder,
+        actor,
+        from_peer_id,
+        id,
+        message,
+        metrics_state,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_decoded_p2p_message(
+    swarm: &mut Swarm<AllBehaviours>,
+    local_db: &LocalDB,
+    btc_client: &Arc<BTCClient>,
+    goat_client: &Arc<GOATClient>,
+    http_client: &HttpAsyncClient,
+    soldering_builder: &Option<Arc<BabeBundleBuilder>>,
+    actor: Actor,
+    from_peer_id: PeerId,
+    id: MessageId,
+    message: GOATMessage,
+    metrics_state: &MetricsState,
+) -> Result<()> {
+    // Determine whether the message comes from this node itself to optionally skip validations.
+    let is_self_peer = get_local_node_info().peer_id == from_peer_id.to_string();
     let message_type = message.content.event_type();
     let role = actor.to_string();
     let from_peer_id_string = from_peer_id.to_string();
