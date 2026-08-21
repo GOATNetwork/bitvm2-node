@@ -138,6 +138,7 @@ pub fn sample_finalized_instance_data(index: usize) -> FinalizedInstanceData {
         constant_labels_0: [S([0; 16]), S([0; 16])],
         constant_labels_1: vec![],
         b: G1Affine::identity(),
+        aes_salt: S([0; 16]),
     }
 }
 
