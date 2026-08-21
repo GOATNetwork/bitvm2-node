@@ -1,5 +1,5 @@
 use crate::action::{
-    GOATMessage, GOATMessageContent, enqueue_p2p_message, handle_self_p2p_msg, send_to_peer,
+    GOATMessage, GOATMessageContent, handle_inbound_p2p_message, handle_self_p2p_msg, send_to_peer,
 };
 use crate::env::get_local_node_info;
 use crate::metrics_service::MetricsState;
@@ -31,9 +31,20 @@ impl P2pMessageHandler for BitvmNodeProcessor {
         id: MessageId,
         message: &[u8],
     ) -> anyhow::Result<()> {
-        let _ = swarm;
-        enqueue_p2p_message(&self.local_db, actor, from_peer_id, id, message, &self.metrics_state)
-            .await
+        handle_inbound_p2p_message(
+            swarm,
+            &self.local_db,
+            &self.btc_client,
+            &self.goat_client,
+            &self.http_client,
+            &self.soldering_builder,
+            actor,
+            from_peer_id,
+            id,
+            message,
+            &self.metrics_state,
+        )
+        .await
     }
 
     async fn handle_tick_message(
