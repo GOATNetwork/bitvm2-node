@@ -2744,7 +2744,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "log",
  "prettyplease 0.2.37",
  "proc-macro2",
@@ -2866,7 +2866,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "verifier",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-verifier",
  "zkm-zkvm",
 ]
@@ -5569,8 +5569,9 @@ dependencies = [
 [[package]]
 name = "garbled-snark-verifier"
 version = "0.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm-gc?branch=feat%2Fgoat-bitvm3#adb8727de26d9758e28dda0825e584b731cfe227"
+source = "git+https://github.com/GOATNetwork/bitvm-gc?branch=feat%2Fgoat-bitvm3#64e6373162deda32b88289a87e05093124d36b04"
 dependencies = [
+ "aes",
  "ark-bn254",
  "ark-crypto-primitives",
  "ark-ec",
@@ -5584,7 +5585,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "once_cell",
- "poseidon2",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rayon",
@@ -6023,7 +6023,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "verifier",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -9539,18 +9539,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poseidon2"
-version = "0.1.0"
-source = "git+https://github.com/ProjectZKM/poseidon2#1ab68f436e220df5870cd6e39006804d5c806279"
-dependencies = [
- "cfg-if",
- "p3-field",
- "p3-koala-bear",
- "p3-symmetric",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren.git)",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9856,7 +9844,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap 0.10.1",
@@ -12207,7 +12195,7 @@ dependencies = [
 [[package]]
 name = "soldering-host"
 version = "1.1.0"
-source = "git+https://github.com/GOATNetwork/bitvm-gc?branch=feat%2Fgoat-bitvm3#adb8727de26d9758e28dda0825e584b731cfe227"
+source = "git+https://github.com/GOATNetwork/bitvm-gc?branch=feat%2Fgoat-bitvm3#64e6373162deda32b88289a87e05093124d36b04"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -12480,7 +12468,7 @@ dependencies = [
  "tendermint-light-client-verifier",
  "tracing",
  "verifier",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -13908,7 +13896,7 @@ dependencies = [
 [[package]]
 name = "verifiable-circuit-babe"
 version = "0.0.1"
-source = "git+https://github.com/GOATNetwork/bitvm-gc?branch=feat%2Fgoat-bitvm3#adb8727de26d9758e28dda0825e584b731cfe227"
+source = "git+https://github.com/GOATNetwork/bitvm-gc?branch=feat%2Fgoat-bitvm3#64e6373162deda32b88289a87e05093124d36b04"
 dependencies = [
  "aes",
  "ark-bn254",
@@ -13933,6 +13921,7 @@ dependencies = [
  "sha2 0.10.9",
  "tracing",
  "zkm-sdk",
+ "zkm-verifier",
  "zkm-zkvm",
 ]
 
@@ -15184,7 +15173,7 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -15236,7 +15225,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -15278,7 +15267,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "typenum",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -15302,33 +15291,13 @@ dependencies = [
  "elliptic-curve",
  "serde",
  "sha2 0.10.9",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
 ]
 
 [[package]]
 name = "zkm-primitives"
 version = "1.2.7"
 source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
-dependencies = [
- "bincode",
- "blake3",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "p3-field",
- "p3-koala-bear",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "serde",
- "sha2 0.10.9",
- "tracing",
-]
-
-[[package]]
-name = "zkm-primitives"
-version = "1.2.7"
-source = "git+https://github.com/ProjectZKM/Ziren.git#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
  "bincode",
  "blake3",
@@ -15374,7 +15343,7 @@ dependencies = [
  "tracing-subscriber 0.3.23",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-recursion-circuit",
  "zkm-recursion-compiler",
  "zkm-recursion-core",
@@ -15408,7 +15377,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-recursion-compiler",
  "zkm-recursion-core",
  "zkm-recursion-gnark-ffi",
@@ -15430,7 +15399,7 @@ dependencies = [
  "tracing",
  "vec_map",
  "zkm-core-machine",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-recursion-derive",
  "zkm-stark",
@@ -15469,7 +15438,7 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -15547,7 +15516,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-core-machine",
  "zkm-cuda",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-prover",
  "zkm-stark",
 ]
@@ -15590,7 +15559,7 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber 0.3.23",
  "zkm-derive",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -15624,7 +15593,7 @@ dependencies = [
  "thiserror 2.0.18",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-sdk",
  "zkm-stark",
@@ -15646,7 +15615,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "zkm-lib",
- "zkm-primitives 1.2.7 (git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7)",
+ "zkm-primitives",
 ]
 
 [[package]]
