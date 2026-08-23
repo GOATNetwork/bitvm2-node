@@ -15,7 +15,7 @@ use crate::task::{
 use ::commit_chain_proof::CommitChainProofBuilder;
 use ::header_chain_proof::HeaderChainProofBuilder;
 use ::state_chain_proof::StateChainProofBuilder;
-use bitcoin::{BlockHash, Network, Txid};
+use bitcoin::{BlockHash, Network, PublicKey, Txid};
 use client::btc_chain::BTCClient;
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -768,7 +768,7 @@ pub(crate) async fn add_operator_task(
     watchtower_challenge_init_txid: String,
     watchtower_challenge_pubkeys: Vec<String>,
 ) -> anyhow::Result<u64> {
-    validate_indexed_watchtower_challenges(
+    let graph_watchtower_xonly_keys = validate_indexed_watchtower_challenges(
         &watchtower_challenge_txids,
         &included_watchtowers,
         &watchtower_challenge_pubkeys,
@@ -779,15 +779,37 @@ pub(crate) async fn add_operator_task(
         .find_watchtower_proof_by_instance_and_graph(&instance_id, &graph_id)
         .await?;
     tracing::info!("existing_watchtower_proof_task: {:?}", existing_watchtower_proof_task);
-    let missing_watchtower_indices: Vec<usize> = watchtower_challenge_txids
-        .iter()
-        .enumerate()
-        .filter(|(node_index, _)| {
-            !existing_watchtower_proof_task
-                .iter()
-                .any(|task| task.node_index as usize == *node_index)
-        })
-        .map(|(node_index, _)| node_index)
+    let mut existing_watchtower_indices = HashSet::new();
+    for task in &existing_watchtower_proof_task {
+        let xonly_key = parse_xonly_public_key(&task.public_key).map_err(|error| {
+            anyhow::anyhow!(
+                "invalid stored watchtower public key for task {} in graph {}: {error}",
+                task.id,
+                graph_id
+            )
+        })?;
+        let node_index = graph_watchtower_xonly_keys
+            .iter()
+            .position(|graph_key| *graph_key == xonly_key)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "stored watchtower public key for task {} does not belong to graph {}",
+                    task.id,
+                    graph_id
+                )
+            })?;
+        if !existing_watchtower_indices.insert(node_index) {
+            anyhow::bail!(
+                "multiple watchtower proof tasks map to node index {node_index} in graph {graph_id}"
+            );
+        }
+        storage_processor
+            .update_watchtower_proof_node_index(task.id, &instance_id, &graph_id, node_index as i32)
+            .await?;
+    }
+
+    let missing_watchtower_indices: Vec<usize> = (0..graph_watchtower_xonly_keys.len())
+        .filter(|node_index| !existing_watchtower_indices.contains(node_index))
         .collect();
     tracing::info!("missing_watchtower_indices: {:?}", missing_watchtower_indices);
     // insert timeout watchtower proof task with failed state.
@@ -805,7 +827,8 @@ pub(crate) async fn add_operator_task(
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
             execution_layer_block_number,
-            public_key: watchtower_challenge_pubkeys[node_index].clone(), // Note: this is a fake public key.
+            // The Graph key identifies the missing Watchtower slot.
+            public_key: watchtower_challenge_pubkeys[node_index].clone(),
             node_index: node_index as i32,
             included: included_watchtowers[node_index],
             ..Default::default()
@@ -853,13 +876,25 @@ fn validate_indexed_watchtower_challenges(
     challenge_txids: &[Option<String>],
     included_watchtowers: &[bool],
     challenge_pubkeys: &[String],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<[u8; 32]>> {
     if challenge_txids.len() != included_watchtowers.len()
         || challenge_txids.len() != challenge_pubkeys.len()
     {
         anyhow::bail!(
             "watchtower challenge txids, included bitmap, and public keys must have equal lengths"
         );
+    }
+    let mut seen_keys = HashSet::new();
+    let mut xonly_keys = Vec::with_capacity(challenge_pubkeys.len());
+    for (index, public_key) in challenge_pubkeys.iter().enumerate() {
+        let xonly_key = parse_xonly_public_key(public_key).map_err(|error| {
+            anyhow::anyhow!("invalid watchtower public key at index {index}: {error}")
+        })?;
+        anyhow::ensure!(
+            seen_keys.insert(xonly_key),
+            "duplicate watchtower x-only public key at index {index}"
+        );
+        xonly_keys.push(xonly_key);
     }
 
     let mut seen = HashSet::new();
@@ -879,7 +914,11 @@ fn validate_indexed_watchtower_challenges(
             }
         }
     }
-    Ok(())
+    Ok(xonly_keys)
+}
+
+fn parse_xonly_public_key(public_key: &str) -> anyhow::Result<[u8; 32]> {
+    Ok(PublicKey::from_str(public_key)?.inner.x_only_public_key().0.serialize())
 }
 
 pub(crate) async fn find_operator_task(
