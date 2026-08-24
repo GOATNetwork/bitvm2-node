@@ -52,7 +52,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
 
-        /// Skip graphs whose instances are locked by another withdrawal
+        /// Skip candidates blocked by another withdrawal, including stale predecessors
         #[arg(long, default_value_t = false)]
         skip_locked: bool,
     },
@@ -70,7 +70,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
 
-        /// Skip graphs whose instances are locked by another withdrawal
+        /// Skip candidates blocked by another withdrawal, including stale predecessors
         #[arg(long, default_value_t = false)]
         skip_locked: bool,
 

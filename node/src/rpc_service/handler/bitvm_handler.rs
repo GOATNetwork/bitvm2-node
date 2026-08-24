@@ -1790,8 +1790,8 @@ fn sats_to_token_amount(amount_sats: u64, token_decimals: u8) -> U256 {
 /// - `graph_id`: Optional preferred UUID of the graph to pegout. If it has
 ///   already been claimed by another graph, the next eligible graph is used.
 /// - `dry_run`: If true, validate but skip the actual initWithdraw call (default: false)
-/// - `skip_locked`: If true, skip an instance temporarily locked by another
-///   withdrawal and search for another withdrawable graph (default: false).
+/// - `skip_locked`: If true, skip a candidate whose instance is locked by another
+///   withdrawal, including a stale locked predecessor (default: false).
 ///
 /// # Returns
 ///
@@ -1917,6 +1917,9 @@ pub async fn pegout(
                         "skipped obsolete graph while selecting pegout candidate"
                     );
                 }
+                skipped_graph_ids.insert(graph.graph_id);
+                preferred_graph_id = None;
+                continue;
             }
             PeginStatus::Locked if !payload.skip_locked => {
                 return error_response(
@@ -1933,43 +1936,136 @@ pub async fn pegout(
                     skipped_graph_id = %graph.graph_id,
                     "skipped graph whose instance is locked by another withdrawal"
                 );
+                skipped_graph_ids.insert(graph.graph_id);
+                preferred_graph_id = None;
+                continue;
             }
-            _ => break (graph, pegin_data),
+            _ => {}
         }
 
-        skipped_graph_ids.insert(graph.graph_id);
-        preferred_graph_id = None;
+        if graph.kickoff_index > 0 {
+            let previous_graph = {
+                let mut storage_process =
+                    app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
+                storage_process
+                    .get_operator_graphs(
+                        GraphQuery::default()
+                            .with_operator_pubkey(graph.operator_pubkey.clone())
+                            .with_kickoff_index(graph.kickoff_index - 1),
+                    )
+                    .await
+                    .api_error("PEGOUT_ERROR")?
+                    .into_iter()
+                    .next()
+            };
+
+            if let Some(previous_graph) = previous_graph {
+                let previous_status = match GraphStatus::from_str(&previous_graph.status) {
+                    Ok(status) => status,
+                    Err(_) => {
+                        return error_response(
+                            "PEGOUT_ERROR".to_string(),
+                            format!(
+                                "graph {} has an unknown previous graph {} status {}",
+                                graph.graph_id, previous_graph.graph_id, previous_graph.status
+                            ),
+                        );
+                    }
+                };
+                match previous_status {
+                    // A higher-index graph can only reach OperatorDataPushed after these
+                    // graphs have become stale, so they must not block its withdrawal.
+                    GraphStatus::OperatorPresigned | GraphStatus::CommitteePresigned => {}
+                    GraphStatus::Obsoleted
+                    | GraphStatus::Skipped
+                    | GraphStatus::OperatorTake1
+                    | GraphStatus::OperatorTake2
+                    | GraphStatus::Disprove => {}
+                    GraphStatus::OperatorDataPushed => {
+                        let previous_pegin_data = app_state
+                            .goat_client
+                            .gateway_get_pegin_data(&previous_graph.instance_id)
+                            .await
+                            .api_error("PEGOUT_ERROR")?;
+                        let previous_withdraw_data = app_state
+                            .goat_client
+                            .gateway_get_withdraw_data(&previous_graph.graph_id)
+                            .await
+                            .api_error("PEGOUT_ERROR")?;
+                        match previous_pegin_data.status {
+                            PeginStatus::Claimed => {}
+                            PeginStatus::Locked
+                                if previous_withdraw_data.status == WithdrawStatus::None
+                                    && payload.skip_locked =>
+                            {
+                                info!(
+                                    instance_id = %graph.instance_id,
+                                    graph_id = %graph.graph_id,
+                                    previous_graph_id = %previous_graph.graph_id,
+                                    "previous graph is locked by another withdrawal; continuing pegout"
+                                );
+                            }
+                            PeginStatus::Locked
+                                if previous_withdraw_data.status == WithdrawStatus::None =>
+                            {
+                                return error_response(
+                                    "PEGOUT_IN_PROGRESS".to_string(),
+                                    format!(
+                                        "graph {} is blocked because previous graph {} is locked by another withdrawal; retry later or set skip_locked=true",
+                                        graph.graph_id, previous_graph.graph_id
+                                    ),
+                                );
+                            }
+                            PeginStatus::Withdrawable => {
+                                return error_response(
+                                    "PEGOUT_ERROR".to_string(),
+                                    format!(
+                                        "graph {} not ready: previous graph {} is still withdrawable",
+                                        graph.graph_id, previous_graph.graph_id
+                                    ),
+                                );
+                            }
+                            previous_pegin_status => {
+                                return error_response(
+                                    "PEGOUT_ERROR".to_string(),
+                                    format!(
+                                        "graph {} not ready: previous graph {} is in status {} with pegin status {:?} and withdraw status {:?}",
+                                        graph.graph_id,
+                                        previous_graph.graph_id,
+                                        previous_graph.status,
+                                        previous_pegin_status,
+                                        previous_withdraw_data.status
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    GraphStatus::PreKickoff
+                    | GraphStatus::OperatorKickOff
+                    | GraphStatus::Challenge => {
+                        return error_response(
+                            "PEGOUT_ERROR".to_string(),
+                            format!(
+                                "graph {} not ready: previous graph {} is in active pegout status {}",
+                                graph.graph_id, previous_graph.graph_id, previous_graph.status
+                            ),
+                        );
+                    }
+                    _ => {
+                        return error_response(
+                            "PEGOUT_ERROR".to_string(),
+                            format!(
+                                "graph {} not ready: previous graph {} has unexpected status {}",
+                                graph.graph_id, previous_graph.graph_id, previous_graph.status
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+
+        break (graph, pegin_data);
     };
-
-    let mut storage_process = app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
-
-    // Check previous graph readiness
-    if graph.kickoff_index > 0 {
-        let pre_graphs = storage_process
-            .get_operator_graphs(
-                GraphQuery::default()
-                    .with_operator_pubkey(graph.operator_pubkey.clone())
-                    .with_kickoff_index(graph.kickoff_index - 1),
-            )
-            .await
-            .api_error("PEGOUT_ERROR")?;
-        if !pre_graphs.is_empty()
-            && [
-                GraphStatus::OperatorDataPushed.to_string(),
-                GraphStatus::OperatorKickOff.to_string(),
-                GraphStatus::Challenge.to_string(),
-            ]
-            .contains(&pre_graphs[0].status)
-        {
-            return error_response(
-                "PEGOUT_ERROR".to_string(),
-                format!(
-                    "graph {} not ready: previous graph {} still in status {}",
-                    graph.graph_id, pre_graphs[0].graph_id, pre_graphs[0].status
-                ),
-            );
-        }
-    }
 
     let amount = graph.amount;
     if amount <= 0 {
