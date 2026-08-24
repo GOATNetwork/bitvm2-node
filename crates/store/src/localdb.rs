@@ -3918,6 +3918,29 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected())
     }
 
+    pub async fn update_watchtower_proof_node_index(
+        &mut self,
+        id: i64,
+        instance_id: &Uuid,
+        graph_id: &Uuid,
+        node_index: i32,
+    ) -> anyhow::Result<u64> {
+        let res = sqlx::query(
+            "UPDATE watchtower_proof
+             SET node_index = ?
+             WHERE id = ?
+                AND instance_id = ?
+                AND graph_id = ?",
+        )
+        .bind(node_index)
+        .bind(id)
+        .bind(instance_id)
+        .bind(graph_id)
+        .execute(self.conn())
+        .await?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn find_watchtower_proof_by_instance_and_graph(
         &mut self,
         instance_id: &Uuid,
@@ -3928,7 +3951,7 @@ impl<'a> StorageProcessor<'a> {
                   FROM watchtower_proof
                   WHERE instance_id = ?
                     AND graph_id = ?
-                  ORDER BY node_index ASC",
+                  ORDER BY node_index ASC, id ASC",
         )
         .bind(instance_id)
         .bind(graph_id)
