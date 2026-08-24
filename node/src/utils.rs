@@ -1451,13 +1451,13 @@ async fn scan_graph_chain_state(
     if graph_data_on_goat.operator_pubkey != [0u8; 32] {
         current_status = GraphStatus::OperatorDataPushed;
     }
-    // check if Graph has been obsoleted on GoatChain
+    // A claimed pegin is terminal, so a graph which did not complete that
+    // withdrawal can never be used. A Locked pegin is intentionally excluded:
+    // the active withdrawal may still be cancelled and return to Withdrawable.
     if current_status == GraphStatus::OperatorDataPushed {
         let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
         let withdraw_data = goat_client.gateway_get_withdraw_data(&graph_id).await?;
-        // NOTE: maybe obesolete graph when pegin is claimed rather than processing?
-        if pegin_data.status != PeginStatus::Withdrawable
-            && withdraw_data.status == WithdrawStatus::None
+        if pegin_data.status == PeginStatus::Claimed && withdraw_data.status == WithdrawStatus::None
         {
             current_status = GraphStatus::Obsoleted;
         }
@@ -5641,6 +5641,67 @@ pub async fn update_graph_status(
         )
         .await
 }
+
+/// Mark one graph obsolete and cancel its pending messages.
+pub(crate) async fn obsolete_graph(
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
+    graph_id: Uuid,
+) -> Result<bool> {
+    let outcome = storage_processor
+        .transition_graph_status(
+            instance_id,
+            graph_id,
+            GraphStatus::Obsoleted,
+            GraphStatusSource::ChainReconcile,
+            None,
+        )
+        .await?;
+    if !matches!(
+        outcome,
+        GraphStatusTransitionOutcome::Applied | GraphStatusTransitionOutcome::AlreadyCurrent
+    ) {
+        return Ok(false);
+    }
+
+    // `None` means no message-type filter: cancel every durable pending message
+    // for this terminal graph so stale retries cannot consume queue capacity or
+    // trigger a later graph action.
+    storage_processor
+        .update_messages_state_by_business_id(
+            &graph_id,
+            None,
+            MessageState::Pending.to_string(),
+            MessageState::Cancelled.to_string(),
+        )
+        .await?;
+    Ok(true)
+}
+
+/// Mark every non-terminal graph for an already claimed instance as obsolete.
+///
+/// `retained_graph_id` is the graph which completed the withdrawal. The caller
+/// must only use this after a terminal Gateway withdraw event confirms that
+/// this graph completed the withdrawal.
+pub(crate) async fn obsolete_instance_graphs_except(
+    storage_processor: &mut StorageProcessor<'_>,
+    instance_id: Uuid,
+    retained_graph_id: Option<Uuid>,
+) -> Result<Vec<Uuid>> {
+    let graphs = storage_processor.get_graphs_by_instance_id(&instance_id).await?;
+    let mut obsoleted_graph_ids = Vec::new();
+
+    for graph in graphs {
+        if Some(graph.graph_id) != retained_graph_id
+            && obsolete_graph(storage_processor, instance_id, graph.graph_id).await?
+        {
+            obsoleted_graph_ids.push(graph.graph_id);
+        }
+    }
+
+    Ok(obsoleted_graph_ids)
+}
+
 pub async fn get_graph_ids_for_instance(
     local_db: &LocalDB,
     instance_id: Uuid,

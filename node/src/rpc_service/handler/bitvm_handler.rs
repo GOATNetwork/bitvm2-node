@@ -15,7 +15,7 @@ use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::{
     bridge_out_instance_id_from_escrow_hash, find_instances_by_escrow_hash,
     gen_instance_parameters_local, get_bridge_out_global_stats, load_validated_graph_definition,
-    send_challenge_tx,
+    obsolete_graph, send_challenge_tx,
 };
 use alloy::primitives::{Address, U256};
 use axum::Json;
@@ -25,6 +25,7 @@ use bitvm_lib::types::BitvmGcGraph;
 use client::goat_chain::{PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
 use http::{HeaderMap, StatusCode};
+use std::collections::HashSet;
 use std::default::Default;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -34,7 +35,7 @@ use store::{
     GoatTxType, Graph, GraphStatus, Instance, InstanceBridgeInStatus, InstanceBridgeOutStatus,
 };
 use tokio::time::{Duration, sleep};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 fn bridge_out_retry_jitter_ms(attempt: u32) -> u64 {
@@ -1786,8 +1787,11 @@ fn sats_to_token_amount(amount_sats: u64, token_decimals: u8) -> U256 {
 ///
 /// # Request Body
 ///
-/// - `graph_id`: Optional UUID of the graph to pegout (auto-selects if omitted)
+/// - `graph_id`: Optional preferred UUID of the graph to pegout. If it has
+///   already been claimed by another graph, the next eligible graph is used.
 /// - `dry_run`: If true, validate but skip the actual initWithdraw call (default: false)
+/// - `skip_locked`: If true, skip an instance temporarily locked by another
+///   withdrawal and search for another withdrawable graph (default: false).
 ///
 /// # Returns
 ///
@@ -1809,69 +1813,135 @@ pub async fn pegout(
         .api_error("PEGOUT_ERROR")?;
     let gateway_addr = get_goat_gateway_contract_from_env();
 
-    let mut storage_process = app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
+    let mut preferred_graph_id = payload
+        .graph_id
+        .as_deref()
+        .map(|graph_id| InputValidator::validate_uuid(graph_id, "graph_id"))
+        .transpose()?;
+    let mut skipped_graph_ids = HashSet::new();
 
-    // Select graph
-    let graph = if let Some(ref graph_id_str) = payload.graph_id {
-        let graph_id_uuid = InputValidator::validate_uuid(graph_id_str, "graph_id")?;
-        let graph = storage_process
-            .find_graph(&graph_id_uuid)
-            .await
-            .api_error("PEGOUT_ERROR")?
-            .ok_or_else(|| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "PEGOUT_ERROR".to_string(),
-                        message: format!("graph {graph_id_str} not found"),
-                    }),
-                )
-            })?;
-        if graph.operator_pubkey != operator_pubkey {
-            return error_response(
-                "PEGOUT_ERROR".to_string(),
-                format!("graph {} not owned by this operator", graph.graph_id),
-            );
-        }
-        if graph.status != GraphStatus::OperatorDataPushed.to_string() {
-            return error_response(
-                "PEGOUT_ERROR".to_string(),
-                format!(
-                    "graph {} status {} is not OperatorDataPushed",
-                    graph.graph_id, graph.status
-                ),
-            );
-        }
-        if graph.init_withdraw_tx_hash.is_some() {
-            return error_response(
-                "PEGOUT_ERROR".to_string(),
-                format!("graph {} already initialized withdraw", graph.graph_id),
-            );
-        }
-        graph
-    } else {
-        // Auto-select: minimal kickoff-index graph with OperatorDataPushed, no init_withdraw
-        let graphs = storage_process
-            .get_operator_graphs(
-                GraphQuery::default()
-                    .with_operator_pubkey(operator_pubkey.clone())
-                    .with_status(GraphStatus::OperatorDataPushed.to_string())
-                    .with_raw_condition("init_withdraw_tx_hash IS NULL".to_string())
-                    .with_order("kickoff_index ASC".to_string())
-                    .with_limit(1),
-            )
+    // A claimed instance can leave an old OperatorDataPushed graph in the
+    // local projection until the terminal withdraw event is observed. Reconcile
+    // it and select another candidate instead of failing pegout.
+    let (graph, pegin_data) = loop {
+        let graph = {
+            let mut storage_process =
+                app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
+            if let Some(graph_id) = preferred_graph_id {
+                let graph = storage_process
+                    .find_graph(&graph_id)
+                    .await
+                    .api_error("PEGOUT_ERROR")?
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: "PEGOUT_ERROR".to_string(),
+                                message: format!("graph {graph_id} not found"),
+                            }),
+                        )
+                    })?;
+                if graph.operator_pubkey != operator_pubkey {
+                    return error_response(
+                        "PEGOUT_ERROR".to_string(),
+                        format!("graph {} not owned by this operator", graph.graph_id),
+                    );
+                }
+                if graph.status != GraphStatus::OperatorDataPushed.to_string() {
+                    return error_response(
+                        "PEGOUT_ERROR".to_string(),
+                        format!(
+                            "graph {} status {} is not OperatorDataPushed",
+                            graph.graph_id, graph.status
+                        ),
+                    );
+                }
+                if graph.init_withdraw_tx_hash.is_some() {
+                    return error_response(
+                        "PEGOUT_ERROR".to_string(),
+                        format!("graph {} already initialized withdraw", graph.graph_id),
+                    );
+                }
+                graph
+            } else {
+                let graphs = storage_process
+                    .get_operator_graphs(
+                        GraphQuery::default()
+                            .with_operator_pubkey(operator_pubkey.clone())
+                            .with_status(GraphStatus::OperatorDataPushed.to_string())
+                            .with_raw_condition("init_withdraw_tx_hash IS NULL".to_string())
+                            .with_order("kickoff_index ASC".to_string()),
+                    )
+                    .await
+                    .api_error("PEGOUT_ERROR")?;
+                graphs
+                    .into_iter()
+                    .find(|graph| !skipped_graph_ids.contains(&graph.graph_id))
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: "PEGOUT_ERROR".to_string(),
+                                message: format!(
+                                    "no eligible graph found for operator {operator_pubkey}"
+                                ),
+                            }),
+                        )
+                    })?
+            }
+        };
+
+        let pegin_data = app_state
+            .goat_client
+            .gateway_get_pegin_data(&graph.instance_id)
             .await
             .api_error("PEGOUT_ERROR")?;
-        graphs.into_iter().next().ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "PEGOUT_ERROR".to_string(),
-                    message: format!("no eligible graph found for operator {operator_pubkey}"),
-                }),
-            )
-        })?
+        match pegin_data.status {
+            PeginStatus::Claimed => {
+                let withdraw_data = app_state
+                    .goat_client
+                    .gateway_get_withdraw_data(&graph.graph_id)
+                    .await
+                    .api_error("PEGOUT_ERROR")?;
+                if withdraw_data.status == WithdrawStatus::None {
+                    let mut storage_process =
+                        app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
+                    let obsoleted =
+                        obsolete_graph(&mut storage_process, graph.instance_id, graph.graph_id)
+                            .await
+                            .api_error("PEGOUT_ERROR")?;
+                    warn!(
+                        instance_id = %graph.instance_id,
+                        skipped_graph_id = %graph.graph_id,
+                        obsoleted,
+                        "skipped obsolete graph while selecting pegout candidate"
+                    );
+                }
+            }
+            PeginStatus::Locked if !payload.skip_locked => {
+                return error_response(
+                    "PEGOUT_IN_PROGRESS".to_string(),
+                    format!(
+                        "graph {} instance {} is locked by an in-progress withdrawal; retry later or set skip_locked=true",
+                        graph.graph_id, graph.instance_id
+                    ),
+                );
+            }
+            PeginStatus::Locked => {
+                info!(
+                    instance_id = %graph.instance_id,
+                    skipped_graph_id = %graph.graph_id,
+                    "skipped graph whose instance is locked by another withdrawal"
+                );
+            }
+            _ => break (graph, pegin_data),
+        }
+
+        skipped_graph_ids.insert(graph.graph_id);
+        preferred_graph_id = None;
     };
+
+    let mut storage_process = app_state.local_db.acquire().await.api_error("PEGOUT_ERROR")?;
 
     // Check previous graph readiness
     if graph.kickoff_index > 0 {
@@ -1910,11 +1980,6 @@ pub async fn pegout(
     }
 
     // Check L2 pegin status
-    let pegin_data = app_state
-        .goat_client
-        .gateway_get_pegin_data(&graph.instance_id)
-        .await
-        .api_error("PEGOUT_ERROR")?;
     if pegin_data.status != PeginStatus::Withdrawable {
         return error_response(
             "PEGOUT_ERROR".to_string(),

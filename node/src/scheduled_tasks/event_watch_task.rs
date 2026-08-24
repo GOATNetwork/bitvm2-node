@@ -13,8 +13,8 @@ use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::evm_swap_utils::{extract_claim_data_from_tx, extract_escrow_data_from_tx};
 use crate::utils::{
     GenerateInstanceParams, bridge_out_instance_id_from_escrow_hash, find_instances_by_escrow_hash,
-    generate_instance, get_bridge_out_global_stats, outpoint_available, reflect_goat_address,
-    strip_hex_prefix_owned,
+    generate_instance, get_bridge_out_global_stats, obsolete_instance_graphs_except,
+    outpoint_available, reflect_goat_address, strip_hex_prefix_owned,
 };
 use alloy::primitives::{Address as EvmAddress, U256};
 use alloy::sol_types::{SolType, SolValue};
@@ -536,6 +536,16 @@ async fn handle_withdraw_paths_events<'a>(
             GraphStatusTransitionOutcome::Applied | GraphStatusTransitionOutcome::AlreadyCurrent
         ) {
             continue;
+        }
+        let obsoleted_graph_ids =
+            obsolete_instance_graphs_except(storage_processor, instance_id, Some(graph_id)).await?;
+        if !obsoleted_graph_ids.is_empty() {
+            info!(
+                instance_id = %instance_id,
+                completed_graph_id = %graph_id,
+                obsoleted_graph_ids = ?obsoleted_graph_ids,
+                "marked other instance graphs obsolete after completed withdrawal"
+            );
         }
         let is_new_event = storage_processor
             .find_graph_goat_tx_record(&instance_id, &graph_id, &tx_type)
