@@ -142,6 +142,10 @@ pub const ENV_INSTANCE_MAINTENANCE_BATCH_SIZE: &str = "INSTANCE_MAINTENANCE_BATC
 pub const DEFAULT_INSTANCE_MAINTENANCE_BATCH_SIZE: u32 = 50;
 pub const ENV_MAINTENANCE_RUN_TIMEOUT_SECS: &str = "MAINTENANCE_RUN_TIMEOUT_SECS";
 pub const DEFAULT_MAINTENANCE_RUN_TIMEOUT_SECS: u64 = 60;
+pub const ENV_P2P_INBOX_BATCH_SIZE: &str = "P2P_INBOX_BATCH_SIZE";
+pub const DEFAULT_P2P_INBOX_BATCH_SIZE: i64 = 16;
+pub const ENV_P2P_OUTBOX_BATCH_SIZE: &str = "P2P_OUTBOX_BATCH_SIZE";
+pub const DEFAULT_P2P_OUTBOX_BATCH_SIZE: i64 = 16;
 pub const ENV_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: &str = "ENABLE_COMMITTEE_INSTANCE_KEY_DELETE";
 pub const DEFAULT_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: bool = false;
 pub const ENV_COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS: &str =
@@ -650,6 +654,22 @@ pub fn get_maintenance_run_timeout_secs() -> u64 {
         .and_then(|value| value.parse::<u64>().ok())
         .map(|timeout| timeout.clamp(1, 300))
         .unwrap_or(DEFAULT_MAINTENANCE_RUN_TIMEOUT_SECS)
+}
+
+pub fn get_p2p_inbox_batch_size() -> i64 {
+    std::env::var(ENV_P2P_INBOX_BATCH_SIZE)
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .map(|size| size.clamp(1, 128))
+        .unwrap_or(DEFAULT_P2P_INBOX_BATCH_SIZE)
+}
+
+pub fn get_p2p_outbox_batch_size() -> i64 {
+    std::env::var(ENV_P2P_OUTBOX_BATCH_SIZE)
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .map(|size| size.clamp(1, 128))
+        .unwrap_or(DEFAULT_P2P_OUTBOX_BATCH_SIZE)
 }
 
 pub fn is_enable_committee_instance_key_delete() -> bool {

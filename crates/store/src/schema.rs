@@ -412,6 +412,14 @@ impl GraphStatus {
         ];
         const SKIPPED: &[GraphStatus] =
             &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, PreKickoff, Obsoleted];
+        const OBSOLETED: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            OperatorKickOff,
+            Challenge,
+        ];
 
         match source {
             GraphStatusSource::Definition => match self {
@@ -426,11 +434,9 @@ impl GraphStatus {
             },
             GraphStatusSource::ChainReconcile => match self {
                 CommitteePresigned => &[OperatorPresigned],
-                // Obsoleted is a provisional branch when GraphData was not
-                // yet visible. A later full chain scan may correct it, but
-                // ordinary Goat event replay may not.
                 OperatorDataPushed => EARLY_OR_OBSOLETED,
-                PreKickoff | Obsoleted => PRE_KICKOFF,
+                Obsoleted => OBSOLETED,
+                PreKickoff => PRE_KICKOFF,
                 OperatorKickOff => KICKOFF,
                 Challenge => CHALLENGE,
                 OperatorTake1 => TAKE1,

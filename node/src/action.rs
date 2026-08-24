@@ -2,7 +2,7 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::collapsible_else_if)]
 
-use crate::env::get_local_node_info;
+use crate::env::{get_local_node_info, get_p2p_inbox_batch_size, get_p2p_outbox_batch_size};
 use crate::handle::{
     HandlerContext, HeavyTaskContext, dispatch as handle_dispatch, heavy_task_from_content,
     is_heavy_task_message_type, run_heavy_task,
@@ -46,7 +46,6 @@ pub struct GOATMessage {
 
 const GOAT_MESSAGE_BIN_PREFIX: &[u8] = b"GOATBIN1";
 const TRANSIENT_PEGIN_RETRY_DELAY_SECS: usize = 30;
-const P2P_INBOX_BATCH_SIZE: i64 = 8;
 const P2P_INBOX_LEASE_SECS: i64 = 5 * 60;
 const P2P_INBOX_LEASE_RENEW_INTERVAL_SECS: u64 = 60;
 const P2P_INBOX_ENQUEUE_ATTEMPTS: usize = 3;
@@ -940,7 +939,7 @@ async fn handle_p2p_inbox_messages(
         .claim_p2p_inbox_messages(
             now,
             now + P2P_INBOX_LEASE_SECS,
-            P2P_INBOX_BATCH_SIZE,
+            get_p2p_inbox_batch_size(),
             &active_heavy_task_ids,
         )
         .await?;
@@ -1277,7 +1276,7 @@ async fn handle_p2p_outbox_messages(
     let now = current_time_secs();
     let mut storage = local_db.start_immediate_transaction().await?;
     let messages = storage
-        .claim_p2p_outbox_messages(now, now + P2P_INBOX_LEASE_SECS, P2P_INBOX_BATCH_SIZE)
+        .claim_p2p_outbox_messages(now, now + P2P_INBOX_LEASE_SECS, get_p2p_outbox_batch_size())
         .await?;
     storage.commit().await?;
 

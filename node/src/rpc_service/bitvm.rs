@@ -111,6 +111,9 @@ pub struct PegoutRequest {
     pub graph_id: Option<String>,
     #[serde(default)]
     pub dry_run: bool,
+    /// Skip graphs whose instances are temporarily locked by another withdrawal.
+    #[serde(default)]
+    pub skip_locked: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
