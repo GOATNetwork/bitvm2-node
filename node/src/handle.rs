@@ -771,11 +771,11 @@ fn freeze_operator_candidates(state: &mut OperatorBabeSetupState) -> Result<()> 
     if state.frozen_verifier_pubkeys.is_some() {
         return Ok(());
     }
-    if state.candidates.len() < todo_funcs::min_required_verifier() {
+    if state.candidates.len() < min_required_verifier() {
         bail!(
             "cannot freeze {} verifier candidates before reaching target {}",
             state.candidates.len(),
-            todo_funcs::min_required_verifier()
+            min_required_verifier()
         );
     }
     let mut verifier_peer_ids = std::collections::HashSet::new();
@@ -784,7 +784,7 @@ fn freeze_operator_candidates(state: &mut OperatorBabeSetupState) -> Result<()> 
             bail!("cannot freeze duplicate verifier peer id");
         }
     }
-    state.candidates.truncate(todo_funcs::min_required_verifier());
+    state.candidates.truncate(min_required_verifier());
     state.candidates.sort_by_key(|candidate| candidate.verifier_pubkey.to_bytes());
     for (verifier_index, candidate) in state.candidates.iter_mut().enumerate() {
         candidate.verifier_index = Some(verifier_index);
@@ -1648,7 +1648,7 @@ async fn handle_gen_circuits_operator(
     }
 
     if operator_state.frozen_verifier_pubkeys.is_none()
-        && operator_state.candidates.len() < todo_funcs::min_required_verifier()
+        && operator_state.candidates.len() < min_required_verifier()
     {
         save_babe_setup_state(ctx.local_db, instance_id, graph_id, &state)?;
 
@@ -2518,7 +2518,7 @@ async fn try_start_graph_committee_setup(
         );
         return Ok(());
     }
-    let validation = todo_funcs::validate_init_graph(
+    let validation = validate_init_graph(
         ctx.local_db,
         ctx.btc_client,
         ctx.goat_client,
@@ -2744,8 +2744,7 @@ async fn handle_create_graph_committee(
 
     // 1. check graph data & operator stake without verifier params endorsements; those may arrive later.
     let validation =
-        todo_funcs::validate_init_graph_base(ctx.local_db, ctx.btc_client, ctx.goat_client, graph)
-            .await;
+        validate_init_graph_base(ctx.local_db, ctx.btc_client, ctx.goat_client, graph).await;
     ctx.metrics_state.record_graph_validation(validation.is_ok());
     if let Err(e) = validation {
         if should_ignore_invalid_graph(&e, instance_id, graph_id, "CreateGraph", None) {
@@ -3429,7 +3428,7 @@ async fn handle_graph_finalize_committee(
 
     // received from Operator
     // 1. check graph data
-    let validation = todo_funcs::validate_finalized_graph(
+    let validation = validate_finalized_graph(
         ctx.btc_client,
         ctx.goat_client,
         graph,
@@ -3561,7 +3560,7 @@ async fn handle_graph_finalize_default(
 
     // received from Operator
     // 1. check graph data
-    let validation = todo_funcs::validate_finalized_graph(
+    let validation = validate_finalized_graph(
         ctx.btc_client,
         ctx.goat_client,
         graph,
@@ -3926,7 +3925,7 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
         let pegin_tx = match ctx.btc_client.get_tx(&pegin_txid).await? {
             Some(tx) => tx,
             None => {
-                let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                let delay_secs = avg_block_time_secs(ctx.btc_client.network());
                 let message = GOATMessage::new(
                     ctx.actor.clone(),
                     GOATMessageContent::PostReady(PostReady { instance_id }),
@@ -3952,7 +3951,7 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
             .map(|(_, es)| es)
             .collect::<Vec<_>>();
         if endorse_sigs.len() != committee_pubkeys.len() {
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network());
             let message = GOATMessage::new(
                 ctx.actor.clone(),
                 GOATMessageContent::PostReady(PostReady { instance_id }),
@@ -3975,7 +3974,7 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
         let pegin_height = match ctx.btc_client.get_tx_status(&pegin_txid).await?.block_height {
             Some(height) => height as u64,
             None => {
-                let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                let delay_secs = avg_block_time_secs(ctx.btc_client.network());
                 let message = GOATMessage::new(
                     ctx.actor.clone(),
                     GOATMessageContent::PostReady(PostReady { instance_id }),
@@ -3997,7 +3996,7 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
         };
         let goat_confirmed_height = ctx.goat_client.btc_spv_latest_height().await?;
         if goat_confirmed_height < pegin_height {
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network())
                 * (pegin_height - goat_confirmed_height);
             let message = GOATMessage::new(
                 ctx.actor.clone(),
@@ -4059,7 +4058,7 @@ async fn handle_post_ready(ctx: &mut HandlerContext<'_>, instance_id: Uuid) -> R
             .await?;
     }
     if missing_graph_endorsements {
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+        let delay_secs = avg_block_time_secs(ctx.btc_client.network());
         let message = GOATMessage::new(
             ctx.actor.clone(),
             GOATMessageContent::PostReady(PostReady { instance_id }),
@@ -4193,7 +4192,7 @@ async fn handle_kickoff_ready_operator(
                 ctx.btc_client.network(),
                 &current_graph.parameters.timelock_config,
             ) as u64
-                * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                * avg_block_time_secs(ctx.btc_client.network());
             let delay_secs = min_pegout_time_secs * nonce_interval;
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
@@ -4210,7 +4209,7 @@ async fn handle_kickoff_ready_operator(
             tracing::info!(
                 "Operator {operator_pubkey} skipped obsoleted graph {current_instance_id}:{current_graph_id}"
             );
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
                 graph_id,
@@ -4234,7 +4233,7 @@ async fn handle_kickoff_ready_operator(
                     ctx.btc_client.network(),
                     &current_graph.parameters.timelock_config,
                 ) as u64
-                    * todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                    * avg_block_time_secs(ctx.btc_client.network());
                 let delay_secs = min_pegout_time_secs * nonce_interval;
                 push_local_unhandled_messages_with_reason(
                     ctx.local_db,
@@ -4251,7 +4250,7 @@ async fn handle_kickoff_ready_operator(
                 tracing::info!(
                     "Operator {operator_pubkey} skipped non-posted graph {current_instance_id}:{current_graph_id}"
                 );
-                let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
+                let delay_secs = avg_block_time_secs(ctx.btc_client.network()); // wait for 1 blocks
                 push_local_unhandled_messages_with_reason(
                     ctx.local_db,
                     graph_id,
@@ -4310,7 +4309,7 @@ async fn handle_kickoff_sent_committee(
     let kickoff_height = match ctx.btc_client.get_tx_status(&kickoff_txid).await?.block_height {
         Some(height) => height as u64,
         None => {
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network());
             let message = make_message(ctx, content);
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
@@ -4329,7 +4328,7 @@ async fn handle_kickoff_sent_committee(
     };
     let goat_confirmed_btc_height = ctx.goat_client.btc_spv_latest_height().await?;
     if goat_confirmed_btc_height < kickoff_height {
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
+        let delay_secs = avg_block_time_secs(ctx.btc_client.network())
             * (kickoff_height - goat_confirmed_btc_height);
         let message = make_message(ctx, content);
         push_local_unhandled_messages_with_reason(
@@ -5012,7 +5011,7 @@ async fn handle_operator_commit_pubin_ready_operator(
     let num_watchtowers = graph.parameters.watchtower_pubkeys.len();
     let watchtower_timeout_txids: Vec<Txid> =
         graph.watchtower_challenge_timeouts.iter().map(|tx| tx.tx().compute_txid()).collect();
-    let wait_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) as usize;
+    let wait_secs = avg_block_time_secs(ctx.btc_client.network()) as usize;
     let WatchtowerChallengeInfo {
         included_watchtowers: included_watchtowers_bits,
         resolved_branch_txids,
@@ -5361,7 +5360,7 @@ async fn handle_assert_sent_verifier(
             {
                 Ok(txins) => txins,
                 Err(e) => {
-                    let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                    let delay_secs = avg_block_time_secs(ctx.btc_client.network());
                     let message = make_message(ctx, content);
                     push_local_unhandled_messages_with_reason(
                         ctx.local_db,
@@ -5420,7 +5419,7 @@ async fn handle_assert_sent_verifier(
                     "PubinDisprove invalid for {instance_id}:{graph_id}: operator pubin consistent, proceeding to ChallengeAssert"
                 ),
                 Err(e) => {
-                    let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+                    let delay_secs = avg_block_time_secs(ctx.btc_client.network());
                     let message = make_message(ctx, content);
                     push_local_unhandled_messages_with_reason(
                         ctx.local_db,
@@ -5600,7 +5599,7 @@ async fn handle_challenge_assert_sent_operator(
     validate_expected_challenge_assert_txid(&graph, verifier_index, challenge_assert_txid)?;
 
     let Some(challenge_assert_tx) = ctx.btc_client.get_tx(&challenge_assert_txid).await? else {
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+        let delay_secs = avg_block_time_secs(ctx.btc_client.network());
         let message = make_message(ctx, content);
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
@@ -5771,7 +5770,7 @@ async fn handle_wrongly_challenge_timeout_verifier(
         return Ok(());
     }
 
-    let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+    let delay_secs = avg_block_time_secs(ctx.btc_client.network());
     let message = make_message(ctx, content);
     if ctx.btc_client.get_tx(&challenge_assert_txid).await?.is_none() {
         push_local_unhandled_messages_with_reason(
@@ -5820,8 +5819,8 @@ async fn handle_wrongly_challenge_timeout_verifier(
         ) as u64;
     let bitcoin_height = ctx.btc_client.get_height().await? as u64;
     if bitcoin_height < disprove_height {
-        let retry_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
-            * (disprove_height - bitcoin_height);
+        let retry_secs =
+            avg_block_time_secs(ctx.btc_client.network()) * (disprove_height - bitcoin_height);
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
             graph_id,
@@ -5922,7 +5921,7 @@ async fn handle_disprove_sent_committee(
     {
         Some(height) => height as u64,
         None => {
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network());
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network());
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
                 graph_id,
@@ -5940,7 +5939,7 @@ async fn handle_disprove_sent_committee(
     };
     let goat_confirmed_height = ctx.goat_client.btc_spv_latest_height().await?;
     if goat_confirmed_height < challenge_finish_height {
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
+        let delay_secs = avg_block_time_secs(ctx.btc_client.network())
             * (challenge_finish_height - goat_confirmed_height);
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
@@ -6089,7 +6088,7 @@ async fn handle_take1_sent_committee(
     let withdraw_status = ctx.goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized {
         // Kickoff not posted yet, wait for it
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) * 6; // wait for 6 blocks
+        let delay_secs = avg_block_time_secs(ctx.btc_client.network()) * 6; // wait for 6 blocks
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
             graph_id,
@@ -6113,7 +6112,7 @@ async fn handle_take1_sent_committee(
     let take1_height = match ctx.btc_client.get_tx_status(&take1_txid).await?.block_height {
         Some(height) => height as u64,
         None => {
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 block
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network()); // wait for 1 block
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
                 graph_id,
@@ -6131,8 +6130,8 @@ async fn handle_take1_sent_committee(
     };
     let goat_confirmed_height = ctx.goat_client.btc_spv_latest_height().await?;
     if goat_confirmed_height < take1_height {
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
-            * (take1_height - goat_confirmed_height);
+        let delay_secs =
+            avg_block_time_secs(ctx.btc_client.network()) * (take1_height - goat_confirmed_height);
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
             graph_id,
@@ -6304,7 +6303,7 @@ async fn handle_take2_sent_committee(
     let withdraw_status = ctx.goat_client.gateway_get_withdraw_data(&graph_id).await?.status;
     if withdraw_status == WithdrawStatus::Initialized {
         // Kickoff not posted yet, wait for it
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()) * 6; // wait for 6 blocks
+        let delay_secs = avg_block_time_secs(ctx.btc_client.network()) * 6; // wait for 6 blocks
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
             graph_id,
@@ -6328,7 +6327,7 @@ async fn handle_take2_sent_committee(
     let take2_height = match ctx.btc_client.get_tx_status(&take2_txid).await?.block_height {
         Some(height) => height as u64,
         None => {
-            let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network()); // wait for 1 block
+            let delay_secs = avg_block_time_secs(ctx.btc_client.network()); // wait for 1 block
             push_local_unhandled_messages_with_reason(
                 ctx.local_db,
                 graph_id,
@@ -6346,8 +6345,8 @@ async fn handle_take2_sent_committee(
     };
     let goat_confirmed_height = ctx.goat_client.btc_spv_latest_height().await?;
     if goat_confirmed_height < take2_height {
-        let delay_secs = todo_funcs::avg_block_time_secs(ctx.btc_client.network())
-            * (take2_height - goat_confirmed_height);
+        let delay_secs =
+            avg_block_time_secs(ctx.btc_client.network()) * (take2_height - goat_confirmed_height);
         push_local_unhandled_messages_with_reason(
             ctx.local_db,
             graph_id,
@@ -6448,7 +6447,7 @@ async fn handle_sync_graph(
             "Failed to validate graph_id on GoatChain for SyncGraph {instance_id}:{graph_id}: {e}"
         )
     })?;
-    let validation = todo_funcs::validate_graph_instance_parameters(
+    let validation = validate_graph_instance_parameters(
         ctx.btc_client,
         ctx.goat_client,
         &graph.parameters.instance_parameters,

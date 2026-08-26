@@ -33,7 +33,9 @@ use bitvm_lib::keys::{
     CommitteeMasterKey, OperatorMasterKey, VerifierMasterKey, WatchtowerMasterKey,
 };
 use bitvm_lib::operator::*;
-use bitvm_lib::timelocks::{connector_f_timelock_blocks, default_timelock_config};
+use bitvm_lib::timelocks::{
+    connector_f_timelock_blocks, default_timelock_config, estimated_block_interval_secs,
+};
 use bitvm_lib::types::{
     BitvmGcCircuitData, BitvmGcGraph, BitvmGcGraphParameters, BitvmGcInstanceParameters,
     PrekickoffParameters, SimplifiedBitvmGcGraph, UserInfo,
@@ -174,594 +176,559 @@ pub struct OperatorStatement {
     pub constant: [u8; 32],
 }
 
-pub mod todo_funcs {
-    #![allow(dead_code, unreachable_code, unused_variables)]
+// other operations
+pub fn avg_block_time_secs(network: Network) -> u64 {
+    estimated_block_interval_secs(network) as u64
+}
+pub fn min_required_operator() -> usize {
+    // todo!("get min required operator number")
+    1
+}
+pub fn min_required_watchtower() -> usize {
+    // todo!("get min required watchtower number")
+    1
+}
+pub fn min_required_verifier() -> usize {
+    get_min_required_verifier()
+        .unwrap_or_else(|error| panic!("invalid verifier count configuration: {error}"))
+}
 
-    use super::*;
-    use bitvm_lib::timelocks::estimated_block_interval_secs;
-    use bitvm_lib::types::SimplifiedBitvmGcGraph;
+/// Checks graph Watchtower membership, uniqueness, and supported count.
+fn validate_watchtower_registry_selection(
+    selected: &[XOnlyPublicKey],
+    registered: &[XOnlyPublicKey],
+) -> Result<()> {
+    use std::collections::HashSet;
 
-    // other operations
-    pub fn avg_block_time_secs(network: Network) -> u64 {
-        estimated_block_interval_secs(network) as u64
+    if selected.len() < min_required_watchtower() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "insufficient watchtowers: have {}, required {}",
+            selected.len(),
+            min_required_watchtower()
+        )));
     }
-    pub fn min_required_operator() -> usize {
-        // todo!("get min required operator number")
-        1
-    }
-    pub fn min_required_watchtower() -> usize {
-        // todo!("get min required watchtower number")
-        1
-    }
-    pub fn min_required_verifier() -> usize {
-        get_min_required_verifier()
-            .unwrap_or_else(|error| panic!("invalid verifier count configuration: {error}"))
-    }
-
-    /// Checks graph Watchtower membership, uniqueness, and supported count.
-    pub(super) fn validate_watchtower_registry_selection(
-        selected: &[XOnlyPublicKey],
-        registered: &[XOnlyPublicKey],
-    ) -> Result<()> {
-        use std::collections::HashSet;
-
-        if selected.len() < min_required_watchtower() {
-            bail!(SpecialError::InvalidGraph(format!(
-                "insufficient watchtowers: have {}, required {}",
-                selected.len(),
-                min_required_watchtower()
-            )));
-        }
-        if selected.len() > 256 {
-            bail!(SpecialError::InvalidGraph(format!(
-                "too many watchtowers: {}, max 256",
-                selected.len()
-            )));
-        }
-
-        let mut seen = HashSet::new();
-        for key in selected {
-            if !seen.insert(*key) {
-                bail!(SpecialError::InvalidGraph(
-                    "duplicate watchtower pubkey in graph".to_string()
-                ));
-            }
-            if !registered.contains(key) {
-                bail!(SpecialError::InvalidGraph(format!("watchtower {} is not registered", key)));
-            }
-        }
-        Ok(())
+    if selected.len() > 256 {
+        bail!(SpecialError::InvalidGraph(format!(
+            "too many watchtowers: {}, max 256",
+            selected.len()
+        )));
     }
 
-    /// Validates the graph's ordered watchtower selection and its bound Operator constant.
-    pub(super) fn validate_watchtower_selection(
-        selected: &[XOnlyPublicKey],
-        registered: &[XOnlyPublicKey],
-        graph_id: [u8; 16],
-        genesis_txid: [u8; 32],
-        challenge_init_txid: [u8; 32],
-        constant: [u8; 32],
-    ) -> Result<()> {
-        validate_watchtower_registry_selection(selected, registered)?;
-        let key_bytes = selected.iter().map(XOnlyPublicKey::serialize).collect::<Vec<_>>();
-        let expected =
-            hash_operator_constant(graph_id, genesis_txid, challenge_init_txid, &key_bytes);
-        if constant != expected {
-            bail!(SpecialError::InvalidGraph(
-                "operator constant mismatch for graph watchtower list".to_string()
-            ));
+    let mut seen = HashSet::new();
+    for key in selected {
+        if !seen.insert(*key) {
+            bail!(SpecialError::InvalidGraph("duplicate watchtower pubkey in graph".to_string()));
         }
-        Ok(())
-    }
-
-    pub async fn validate_graph_instance_parameters(
-        btc_client: &BTCClient,
-        goat_client: &GOATClient,
-        parameters: &BitvmGcInstanceParameters,
-    ) -> Result<()> {
-        let expected = super::read_instance_info_from_goat(goat_client, parameters.instance_id)
-            .await
-            .map_err(|e| {
-                SpecialError::InvalidGraph(format!(
-                    "failed to load instance parameters from GoatChain: {e}"
-                ))
-            })?;
-        if parameters != &expected {
-            bail!(SpecialError::InvalidGraph(
-                "instance parameters mismatch with GoatChain peg-in data".to_string()
-            ));
-        }
-
-        for input in &expected.user_info.inputs {
-            let funding_tx = btc_client.get_tx(&input.outpoint.txid).await.map_err(|e| {
-                SpecialError::InvalidGraph(format!(
-                    "failed to load peg-in funding transaction {}: {e}",
-                    input.outpoint.txid
-                ))
-            })?;
-            let Some(funding_tx) = funding_tx else {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "peg-in funding transaction {} not found on Bitcoin",
-                    input.outpoint.txid
-                )));
-            };
-            let funding_output =
-                funding_tx.output.get(input.outpoint.vout as usize).ok_or_else(|| {
-                    SpecialError::InvalidGraph(format!(
-                        "peg-in funding outpoint {}:{} does not exist",
-                        input.outpoint.txid, input.outpoint.vout
-                    ))
-                })?;
-            if funding_output.value != input.amount {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "peg-in funding amount mismatch for {}:{}: graph={}, bitcoin={}",
-                    input.outpoint.txid,
-                    input.outpoint.vout,
-                    input.amount.to_sat(),
-                    funding_output.value.to_sat()
-                )));
-            }
-        }
-
-        let pegin_deposit_txid = expected
-            .build_pegin_tx()
-            .map_err(|e| {
-                SpecialError::InvalidGraph(format!("failed to reconstruct peg-in deposit: {e}"))
-            })?
-            .0
-            .tx()
-            .compute_txid();
-        if btc_client
-            .get_tx(&pegin_deposit_txid)
-            .await
-            .map_err(|e| {
-                SpecialError::InvalidGraph(format!(
-                    "failed to load peg-in deposit transaction {pegin_deposit_txid}: {e}"
-                ))
-            })?
-            .is_none()
-        {
-            bail!(SpecialError::InvalidGraph(format!(
-                "peg-in deposit transaction {pegin_deposit_txid} not found on Bitcoin"
-            )));
-        }
-
-        Ok(())
-    }
-
-    fn validate_graph_policy(parameters: &BitvmGcGraphParameters) -> Result<()> {
-        let verifier_num = parameters.gc_data.len();
-        if verifier_num < min_required_verifier() {
-            bail!(SpecialError::InvalidGraph(format!(
-                "insufficient verifier GC slots: have {}, required {}",
-                verifier_num,
-                min_required_verifier()
-            )));
-        }
-
-        let mut verifier_pubkeys = std::collections::HashSet::new();
-        for gc_data in &parameters.gc_data {
-            if !verifier_pubkeys.insert(gc_data.verifier_pubkey) {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "duplicate verifier pubkey in GC data: {}",
-                    gc_data.verifier_pubkey
-                )));
-            }
-            if gc_data.final_msg_hashlocks.len() != BABE_M_CC {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "verifier {} has {} final message hashlocks, expected {}",
-                    gc_data.verifier_pubkey,
-                    gc_data.final_msg_hashlocks.len(),
-                    BABE_M_CC
-                )));
-            }
-        }
-
-        let watchtower_num = parameters.watchtower_pubkeys.len();
-        if watchtower_num < min_required_watchtower() {
-            bail!(SpecialError::InvalidGraph(format!(
-                "insufficient watchtower slots: have {}, required {}",
-                watchtower_num,
-                min_required_watchtower()
-            )));
-        }
-        let mut watchtower_pubkeys = std::collections::HashSet::new();
-        for pubkey in &parameters.watchtower_pubkeys {
-            if !watchtower_pubkeys.insert(*pubkey) {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "duplicate watchtower pubkey in graph: {pubkey}"
-                )));
-            }
-        }
-        let mut watchtower_hashlocks = std::collections::HashSet::new();
-        for hashlock in &parameters.watchtower_ack_hashlocks {
-            if !watchtower_hashlocks.insert(*hashlock) {
-                bail!(SpecialError::InvalidGraph(
-                    "duplicate watchtower ack hashlock in graph".to_string()
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn validate_prekickoff_continuity(
-        local_db: &LocalDB,
-        full_graph: &BitvmGcGraph,
-    ) -> Result<()> {
-        if full_graph.parameters.graph_nonce == 0 {
-            return Ok(());
-        }
-
-        let mut storage_processor = local_db.acquire().await?;
-        let previous_nonce = full_graph.parameters.graph_nonce - 1;
-        let graphs = storage_processor
-            .get_operator_graphs(
-                GraphQuery::default()
-                    .with_operator_pubkey(full_graph.parameters.operator_pubkey.to_string())
-                    .with_kickoff_index(previous_nonce as i64)
-                    .with_limit(2),
-            )
-            .await?;
-        if let Some(previous_graph) = graphs.first() {
-            let simplified_graph = super::load_validated_graph_definition(
-                &mut storage_processor,
-                previous_graph.instance_id,
-                previous_graph.graph_id,
-            )
-            .await?
-            .ok_or_else(|| {
-                SpecialError::InvalidGraph(format!(
-                    "previous graph raw data is missing for graph nonce {previous_nonce}"
-                ))
-            })?;
-            let expected_cur_prekickoff =
-                BitvmGcGraph::from_simplified(&simplified_graph)?.next_prekickoff;
-            let expected_txid = expected_cur_prekickoff.finalize().compute_txid();
-            let actual_txid = full_graph.cur_prekickoff.finalize().compute_txid();
-            if actual_txid != expected_txid {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "cur prekickoff continuity mismatch: graph={actual_txid}, expected={expected_txid}"
-                )));
-            }
-            Ok(())
-        } else {
-            bail!(SpecialError::InvalidGraph(format!(
-                "previous graph is missing for graph nonce {previous_nonce}"
-            )));
+        if !registered.contains(key) {
+            bail!(SpecialError::InvalidGraph(format!("watchtower {} is not registered", key)));
         }
     }
+    Ok(())
+}
 
-    pub async fn validate_init_graph_base(
-        local_db: &LocalDB,
-        btc_client: &BTCClient,
-        goat_client: &GOATClient,
-        graph: &SimplifiedBitvmGcGraph,
-    ) -> Result<()> {
-        if !graph.operator_pre_signed() {
-            bail!(SpecialError::InvalidGraph(
-                "graph is missing operator pre-signatures".to_string()
-            ));
-        }
-        // Basic structural and on-chain consistency checks for an incoming graph proposal.
-        // Return SpecialError::InvalidGraph on any validation failure.
-        // 1) Rebuild full graph (ensures signatures present if flags are set and tx graph is coherent)
-        let full_graph = BitvmGcGraph::from_simplified(graph)
-            .map_err(|e| SpecialError::InvalidGraph(format!("invalid graph structure: {e}")))?;
-        validate_graph_policy(&graph.parameters)?;
-        validate_prekickoff_continuity(local_db, &full_graph).await?;
-        verify_graph_operator_pre_signatures(&full_graph).map_err(|e| {
-            SpecialError::InvalidGraph(format!("invalid operator pre-signatures: {e}"))
+/// Validates the graph's ordered watchtower selection and its bound Operator constant.
+fn validate_watchtower_selection(
+    selected: &[XOnlyPublicKey],
+    registered: &[XOnlyPublicKey],
+    graph_id: [u8; 16],
+    genesis_txid: [u8; 32],
+    challenge_init_txid: [u8; 32],
+    constant: [u8; 32],
+) -> Result<()> {
+    validate_watchtower_registry_selection(selected, registered)?;
+    let key_bytes = selected.iter().map(XOnlyPublicKey::serialize).collect::<Vec<_>>();
+    let expected = hash_operator_constant(graph_id, genesis_txid, challenge_init_txid, &key_bytes);
+    if constant != expected {
+        bail!(SpecialError::InvalidGraph(
+            "operator constant mismatch for graph watchtower list".to_string()
+        ));
+    }
+    Ok(())
+}
+
+pub async fn validate_graph_instance_parameters(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    parameters: &BitvmGcInstanceParameters,
+) -> Result<()> {
+    let expected =
+        read_instance_info_from_goat(goat_client, parameters.instance_id).await.map_err(|e| {
+            SpecialError::InvalidGraph(format!(
+                "failed to load instance parameters from GoatChain: {e}"
+            ))
         })?;
+    if parameters != &expected {
+        bail!(SpecialError::InvalidGraph(
+            "instance parameters mismatch with GoatChain peg-in data".to_string()
+        ));
+    }
 
-        // 2) Bind all instance and peg-in parameters to GoatChain and Bitcoin.
-        validate_graph_instance_parameters(
-            btc_client,
-            goat_client,
-            &graph.parameters.instance_parameters,
+    for input in &expected.user_info.inputs {
+        let funding_tx = btc_client.get_tx(&input.outpoint.txid).await.map_err(|e| {
+            SpecialError::InvalidGraph(format!(
+                "failed to load peg-in funding transaction {}: {e}",
+                input.outpoint.txid
+            ))
+        })?;
+        let Some(funding_tx) = funding_tx else {
+            bail!(SpecialError::InvalidGraph(format!(
+                "peg-in funding transaction {} not found on Bitcoin",
+                input.outpoint.txid
+            )));
+        };
+        let funding_output =
+            funding_tx.output.get(input.outpoint.vout as usize).ok_or_else(|| {
+                SpecialError::InvalidGraph(format!(
+                    "peg-in funding outpoint {}:{} does not exist",
+                    input.outpoint.txid, input.outpoint.vout
+                ))
+            })?;
+        if funding_output.value != input.amount {
+            bail!(SpecialError::InvalidGraph(format!(
+                "peg-in funding amount mismatch for {}:{}: graph={}, bitcoin={}",
+                input.outpoint.txid,
+                input.outpoint.vout,
+                input.amount.to_sat(),
+                funding_output.value.to_sat()
+            )));
+        }
+    }
+
+    let pegin_deposit_txid = expected
+        .build_pegin_tx()
+        .map_err(|e| {
+            SpecialError::InvalidGraph(format!("failed to reconstruct peg-in deposit: {e}"))
+        })?
+        .0
+        .tx()
+        .compute_txid();
+    if btc_client
+        .get_tx(&pegin_deposit_txid)
+        .await
+        .map_err(|e| {
+            SpecialError::InvalidGraph(format!(
+                "failed to load peg-in deposit transaction {pegin_deposit_txid}: {e}"
+            ))
+        })?
+        .is_none()
+    {
+        bail!(SpecialError::InvalidGraph(format!(
+            "peg-in deposit transaction {pegin_deposit_txid} not found on Bitcoin"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_graph_policy(parameters: &BitvmGcGraphParameters) -> Result<()> {
+    let verifier_num = parameters.gc_data.len();
+    if verifier_num < min_required_verifier() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "insufficient verifier GC slots: have {}, required {}",
+            verifier_num,
+            min_required_verifier()
+        )));
+    }
+
+    let mut verifier_pubkeys = std::collections::HashSet::new();
+    for gc_data in &parameters.gc_data {
+        if !verifier_pubkeys.insert(gc_data.verifier_pubkey) {
+            bail!(SpecialError::InvalidGraph(format!(
+                "duplicate verifier pubkey in GC data: {}",
+                gc_data.verifier_pubkey
+            )));
+        }
+        if gc_data.final_msg_hashlocks.len() != BABE_M_CC {
+            bail!(SpecialError::InvalidGraph(format!(
+                "verifier {} has {} final message hashlocks, expected {}",
+                gc_data.verifier_pubkey,
+                gc_data.final_msg_hashlocks.len(),
+                BABE_M_CC
+            )));
+        }
+    }
+
+    let watchtower_num = parameters.watchtower_pubkeys.len();
+    if watchtower_num < min_required_watchtower() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "insufficient watchtower slots: have {}, required {}",
+            watchtower_num,
+            min_required_watchtower()
+        )));
+    }
+    let mut watchtower_pubkeys = std::collections::HashSet::new();
+    for pubkey in &parameters.watchtower_pubkeys {
+        if !watchtower_pubkeys.insert(*pubkey) {
+            bail!(SpecialError::InvalidGraph(format!(
+                "duplicate watchtower pubkey in graph: {pubkey}"
+            )));
+        }
+    }
+    let mut watchtower_hashlocks = std::collections::HashSet::new();
+    for hashlock in &parameters.watchtower_ack_hashlocks {
+        if !watchtower_hashlocks.insert(*hashlock) {
+            bail!(SpecialError::InvalidGraph(
+                "duplicate watchtower ack hashlock in graph".to_string()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn validate_prekickoff_continuity(
+    local_db: &LocalDB,
+    full_graph: &BitvmGcGraph,
+) -> Result<()> {
+    if full_graph.parameters.graph_nonce == 0 {
+        return Ok(());
+    }
+
+    let mut storage_processor = local_db.acquire().await?;
+    let previous_nonce = full_graph.parameters.graph_nonce - 1;
+    let graphs = storage_processor
+        .get_operator_graphs(
+            GraphQuery::default()
+                .with_operator_pubkey(full_graph.parameters.operator_pubkey.to_string())
+                .with_kickoff_index(previous_nonce as i64)
+                .with_limit(2),
         )
         .await?;
-
-        // 3) Challenge amount and assert-commit count must match local constants
-        if graph.parameters.challenge_amount != super::todo_funcs::challenge_amount() {
-            bail!(SpecialError::InvalidGraph("unexpected challenge amount".to_string()));
-        }
-
-        // 4) Watchtower config sanity: number of watchtowers should match number of hashlocks and registry size
-        let watchtowers_on_chain =
-            goat_client.committee_mana_get_watchtowers().await.map_err(|e| {
-                SpecialError::InvalidGraph(format!("failed to load watchtowers from chain: {e}"))
-            })?;
-
-        validate_watchtower_selection(
-            &graph.parameters.watchtower_pubkeys,
-            &watchtowers_on_chain,
-            *graph.parameters.graph_id.as_bytes(),
-            get_genesis_sequencer_commit_id(),
-            full_graph.watchtower_challenge_init.tx().compute_txid().to_byte_array(),
-            graph.parameters.pubin_disprove_constant,
-        )?;
-
-        // 5) Operator stake sanity: verify operator is registered and has enough locked stake
-        let op_pk_bytes = graph.parameters.operator_pubkey.to_bytes();
-        let xonly: [u8; 32] = op_pk_bytes[1..33]
-            .try_into()
-            .map_err(|_| SpecialError::InvalidGraph("invalid operator pubkey".to_string()))?;
-        let operator_addr =
-            goat_client.stake_mana_pubkey_to_address(&xonly).await.map_err(|e| {
-                SpecialError::InvalidGraph(format!("failed to query operator address: {e}"))
-            })?;
-        if operator_addr == [0u8; 20] {
-            bail!(SpecialError::InvalidGraph("operator not registered".to_string()));
-        }
-        let min_stake_amount = goat_client.gateway_get_min_stake_amount().await.map_err(|e| {
-            SpecialError::InvalidGraph(format!("failed to query min stake amount: {e}"))
-        })?;
-        let locked_stake =
-            goat_client.stake_mana_lock_stake_of(&operator_addr).await.map_err(|e| {
-                SpecialError::InvalidGraph(format!("failed to query operator locked stake: {e}"))
-            })?;
-        if locked_stake < min_stake_amount {
-            bail!(SpecialError::InvalidGraph(format!(
-                "insufficient operator stake: locked={locked_stake}, min={min_stake_amount}"
-            )));
-        }
-
-        Ok(())
-    }
-
-    pub fn validate_verifier_graph_params_endorsements(
-        graph: &SimplifiedBitvmGcGraph,
-        verifier_endorsements: &[(PublicKey, usize, SchnorrSignature)],
-    ) -> Result<()> {
-        let expected_verifier_num = graph.parameters.gc_data.len();
-        if verifier_endorsements.len() != expected_verifier_num {
-            bail!(SpecialError::InvalidGraph(format!(
-                "verifier params endorsement count {} does not match GC slot count {}",
-                verifier_endorsements.len(),
-                expected_verifier_num
-            )));
-        }
-
-        let mut seen_pubkeys = std::collections::HashSet::new();
-        let mut seen_indices = std::collections::HashSet::new();
-        for (verifier_pubkey, verifier_index, signature) in verifier_endorsements {
-            if *verifier_index >= expected_verifier_num {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "verifier params endorsement index {verifier_index} out of range"
-                )));
-            }
-            let slot_pubkey = graph.parameters.gc_data[*verifier_index].verifier_pubkey;
-            if slot_pubkey != *verifier_pubkey {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "verifier params endorsement slot mismatch at index {verifier_index}: signature pubkey={}, graph pubkey={slot_pubkey}",
-                    verifier_pubkey
-                )));
-            }
-            if !seen_pubkeys.insert(*verifier_pubkey) {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "duplicate verifier params endorsement pubkey: {verifier_pubkey}"
-                )));
-            }
-            if !seen_indices.insert(*verifier_index) {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "duplicate verifier params endorsement index: {verifier_index}"
-                )));
-            }
-            let ok =
-                super::verify_verifier_graph_params_endorsement(verifier_pubkey, graph, signature)?;
-            if !ok {
-                bail!(SpecialError::InvalidGraph(format!(
-                    "invalid verifier params endorsement signature for {verifier_pubkey}"
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn validate_init_graph(
-        local_db: &LocalDB,
-        btc_client: &BTCClient,
-        goat_client: &GOATClient,
-        graph: &SimplifiedBitvmGcGraph,
-        verifier_endorsements: &[(PublicKey, usize, SchnorrSignature)],
-    ) -> Result<()> {
-        validate_init_graph_base(local_db, btc_client, goat_client, graph).await?;
-        validate_verifier_graph_params_endorsements(graph, verifier_endorsements)?;
-        Ok(())
-    }
-    pub async fn validate_finalized_graph(
-        btc_client: &BTCClient,
-        goat_client: &GOATClient,
-        graph: &SimplifiedBitvmGcGraph,
-        endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
-        params_endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
-    ) -> Result<()> {
-        if !graph.operator_pre_signed() || !graph.committee_pre_signed() {
-            bail!(SpecialError::InvalidGraph(
-                "finalized graph is missing operator or committee pre-signatures".to_string()
-            ));
-        }
-        // 1) Rebuild full graph to ensure structure is coherent and txns derivable
-        let full_graph = BitvmGcGraph::from_simplified(graph)
-            .map_err(|e| SpecialError::InvalidGraph(format!("invalid graph structure: {e}")))?;
-        validate_graph_policy(&graph.parameters)?;
-        verify_graph_operator_pre_signatures(&full_graph).map_err(|e| {
-            SpecialError::InvalidGraph(format!("invalid operator pre-signatures: {e}"))
-        })?;
-        verify_graph_committee_pre_signatures(&full_graph).map_err(|e| {
-            SpecialError::InvalidGraph(format!("invalid committee pre-signatures: {e}"))
-        })?;
-
-        // 2) Repeat the full instance and peg-in binding for nodes that did not see CreateGraph.
-        validate_graph_instance_parameters(
-            btc_client,
-            goat_client,
-            &graph.parameters.instance_parameters,
+    if let Some(previous_graph) = graphs.first() {
+        let simplified_graph = load_validated_graph_definition(
+            &mut storage_processor,
+            previous_graph.instance_id,
+            previous_graph.graph_id,
         )
-        .await?;
-
-        let instance_id = graph.parameters.instance_parameters.instance_id;
-        if graph.parameters.challenge_amount != super::todo_funcs::challenge_amount() {
-            bail!(SpecialError::InvalidGraph("unexpected challenge amount".to_string()));
-        }
-
-        let watchtowers_on_chain =
-            goat_client.committee_mana_get_watchtowers().await.map_err(|e| {
-                SpecialError::InvalidGraph(format!("failed to load watchtowers from chain: {e}"))
-            })?;
-        validate_watchtower_selection(
-            &graph.parameters.watchtower_pubkeys,
-            &watchtowers_on_chain,
-            *graph.parameters.graph_id.as_bytes(),
-            get_genesis_sequencer_commit_id(),
-            full_graph.watchtower_challenge_init.tx().compute_txid().to_byte_array(),
-            graph.parameters.pubin_disprove_constant,
-        )?;
-
-        // 3) Validate endorsements: unique, from legitimate committee members, and signatures recover to the provided EVM address
-        use std::collections::HashSet;
-        let mut seen_committee: HashSet<PublicKey> = HashSet::new();
-        let mut seen_evm: HashSet<EvmAddress> = HashSet::new();
-        let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await.map_err(|e| {
-            SpecialError::InvalidGraph(format!("failed to load instance data: {e}"))
+        .await?
+        .ok_or_else(|| {
+            SpecialError::InvalidGraph(format!(
+                "previous graph raw data is missing for graph nonce {previous_nonce}"
+            ))
         })?;
-        if pegin_data.committee_pubkeys.len() != pegin_data.committee_addresses.len() {
-            bail!(SpecialError::InvalidGraph(
-                "on-chain committee pubkey and address counts differ".to_string()
-            ));
-        }
-        if endorse_sigs.len() != pegin_data.committee_pubkeys.len() {
+        let expected_cur_prekickoff =
+            BitvmGcGraph::from_simplified(&simplified_graph)?.next_prekickoff;
+        let expected_txid = expected_cur_prekickoff.finalize().compute_txid();
+        let actual_txid = full_graph.cur_prekickoff.finalize().compute_txid();
+        if actual_txid != expected_txid {
             bail!(SpecialError::InvalidGraph(format!(
-                "endorsement count {} does not match instance committee count {}",
-                endorse_sigs.len(),
-                pegin_data.committee_pubkeys.len()
+                "cur prekickoff continuity mismatch: graph={actual_txid}, expected={expected_txid}"
             )));
         }
-        if params_endorse_sigs.len() != pegin_data.committee_pubkeys.len() {
-            bail!(SpecialError::InvalidGraph(format!(
-                "params endorsement count {} does not match instance committee count {}",
-                params_endorse_sigs.len(),
-                pegin_data.committee_pubkeys.len()
-            )));
-        }
-
-        for (pk, evm_addr, sig) in endorse_sigs.iter() {
-            // no duplicates
-            if !seen_committee.insert(*pk) {
-                bail!(SpecialError::InvalidGraph(
-                    "duplicate committee pubkey in endorsements".to_string()
-                ));
-            }
-            if !seen_evm.insert(*evm_addr) {
-                bail!(SpecialError::InvalidGraph(
-                    "duplicate evm address in endorsements".to_string()
-                ));
-            }
-
-            // map pubkey -> expected evm address from GoatChain
-            let mut found = false;
-            for i in 0..pegin_data.committee_pubkeys.len() {
-                let on_chain_pk =
-                    PublicKey::from_slice(&pegin_data.committee_pubkeys[i]).map_err(|e| {
-                        SpecialError::InvalidGraph(format!(
-                            "invalid committee pubkey on-chain: {e}"
-                        ))
-                    })?;
-                if &on_chain_pk == pk {
-                    found = true;
-                    let expected_addr = pegin_data.committee_addresses[i];
-                    if &expected_addr != evm_addr {
-                        bail!(SpecialError::InvalidGraph(
-                            "committee evm address mismatch".to_string()
-                        ));
-                    }
-                    break;
-                }
-            }
-            if !found {
-                bail!(SpecialError::InvalidGraph("endorser not in committee set".to_string()));
-            }
-
-            // cryptographically verify the endorsement against the graph digest
-            let ok = super::verify_graph_endorsement(goat_client, evm_addr, &full_graph, sig)
-                .await
-                .map_err(|e| {
-                    SpecialError::InvalidGraph(format!("failed to verify endorsement: {e}"))
-                })?;
-            if !ok {
-                bail!(SpecialError::InvalidGraph("invalid endorsement signature".to_string()));
-            }
-        }
-
-        let mut seen_committee: HashSet<PublicKey> = HashSet::new();
-        let mut seen_evm: HashSet<EvmAddress> = HashSet::new();
-        for (pk, evm_addr, sig) in params_endorse_sigs.iter() {
-            if !seen_committee.insert(*pk) {
-                bail!(SpecialError::InvalidGraph(
-                    "duplicate committee pubkey in params endorsements".to_string()
-                ));
-            }
-            if !seen_evm.insert(*evm_addr) {
-                bail!(SpecialError::InvalidGraph(
-                    "duplicate evm address in params endorsements".to_string()
-                ));
-            }
-
-            let mut found = false;
-            for i in 0..pegin_data.committee_pubkeys.len() {
-                let on_chain_pk =
-                    PublicKey::from_slice(&pegin_data.committee_pubkeys[i]).map_err(|e| {
-                        SpecialError::InvalidGraph(format!(
-                            "invalid committee pubkey on-chain: {e}"
-                        ))
-                    })?;
-                if &on_chain_pk == pk {
-                    found = true;
-                    let expected_addr = pegin_data.committee_addresses[i];
-                    if &expected_addr != evm_addr {
-                        bail!(SpecialError::InvalidGraph(
-                            "committee evm address mismatch in params endorsements".to_string()
-                        ));
-                    }
-                    break;
-                }
-            }
-            if !found {
-                bail!(SpecialError::InvalidGraph(
-                    "params endorser not in committee set".to_string()
-                ));
-            }
-
-            let ok = super::verify_graph_params_endorsement(evm_addr, &full_graph, sig).map_err(
-                |e| SpecialError::InvalidGraph(format!("failed to verify params endorsement: {e}")),
-            )?;
-            if !ok {
-                bail!(SpecialError::InvalidGraph(
-                    "invalid params endorsement signature".to_string()
-                ));
-            }
-        }
-
         Ok(())
-    }
-    pub fn prekickoff_replenishment_amount() -> Amount {
-        Amount::from_sat(500000)
-    }
-    pub fn min_prekickoff_input_amount() -> Amount {
-        Amount::from_sat(200000)
-    }
-    pub fn challenge_amount() -> Amount {
-        Amount::from_sat(20000)
-    }
-    pub fn prekickoff_fee_amount(replenish_fee_inputs_num: usize) -> Amount {
-        let tx_vbytes = PRE_KICKOFF_BASE_VBYTES
-            + (replenish_fee_inputs_num as u64 * CHEKSIG_P2WSH_INPUT_VBYTES);
-        Amount::from_sat(tx_vbytes)
+    } else {
+        bail!(SpecialError::InvalidGraph(format!(
+            "previous graph is missing for graph nonce {previous_nonce}"
+        )));
     }
 }
 
+pub async fn validate_init_graph_base(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    graph: &SimplifiedBitvmGcGraph,
+) -> Result<()> {
+    if !graph.operator_pre_signed() {
+        bail!(SpecialError::InvalidGraph("graph is missing operator pre-signatures".to_string()));
+    }
+    // Basic structural and on-chain consistency checks for an incoming graph proposal.
+    // Return SpecialError::InvalidGraph on any validation failure.
+    // 1) Rebuild full graph (ensures signatures present if flags are set and tx graph is coherent)
+    let full_graph = BitvmGcGraph::from_simplified(graph)
+        .map_err(|e| SpecialError::InvalidGraph(format!("invalid graph structure: {e}")))?;
+    validate_graph_policy(&graph.parameters)?;
+    validate_prekickoff_continuity(local_db, &full_graph).await?;
+    verify_graph_operator_pre_signatures(&full_graph)
+        .map_err(|e| SpecialError::InvalidGraph(format!("invalid operator pre-signatures: {e}")))?;
+
+    // 2) Bind all instance and peg-in parameters to GoatChain and Bitcoin.
+    validate_graph_instance_parameters(
+        btc_client,
+        goat_client,
+        &graph.parameters.instance_parameters,
+    )
+    .await?;
+
+    // 3) Challenge amount and assert-commit count must match local constants
+    if graph.parameters.challenge_amount != challenge_amount() {
+        bail!(SpecialError::InvalidGraph("unexpected challenge amount".to_string()));
+    }
+
+    // 4) Watchtower config sanity: number of watchtowers should match number of hashlocks and registry size
+    let watchtowers_on_chain = goat_client.committee_mana_get_watchtowers().await.map_err(|e| {
+        SpecialError::InvalidGraph(format!("failed to load watchtowers from chain: {e}"))
+    })?;
+
+    validate_watchtower_selection(
+        &graph.parameters.watchtower_pubkeys,
+        &watchtowers_on_chain,
+        *graph.parameters.graph_id.as_bytes(),
+        get_genesis_sequencer_commit_id(),
+        full_graph.watchtower_challenge_init.tx().compute_txid().to_byte_array(),
+        graph.parameters.pubin_disprove_constant,
+    )?;
+
+    // 5) Operator stake sanity: verify operator is registered and has enough locked stake
+    let op_pk_bytes = graph.parameters.operator_pubkey.to_bytes();
+    let xonly: [u8; 32] = op_pk_bytes[1..33]
+        .try_into()
+        .map_err(|_| SpecialError::InvalidGraph("invalid operator pubkey".to_string()))?;
+    let operator_addr = goat_client.stake_mana_pubkey_to_address(&xonly).await.map_err(|e| {
+        SpecialError::InvalidGraph(format!("failed to query operator address: {e}"))
+    })?;
+    if operator_addr == [0u8; 20] {
+        bail!(SpecialError::InvalidGraph("operator not registered".to_string()));
+    }
+    let min_stake_amount = goat_client.gateway_get_min_stake_amount().await.map_err(|e| {
+        SpecialError::InvalidGraph(format!("failed to query min stake amount: {e}"))
+    })?;
+    let locked_stake = goat_client.stake_mana_lock_stake_of(&operator_addr).await.map_err(|e| {
+        SpecialError::InvalidGraph(format!("failed to query operator locked stake: {e}"))
+    })?;
+    if locked_stake < min_stake_amount {
+        bail!(SpecialError::InvalidGraph(format!(
+            "insufficient operator stake: locked={locked_stake}, min={min_stake_amount}"
+        )));
+    }
+
+    Ok(())
+}
+
+pub fn validate_verifier_graph_params_endorsements(
+    graph: &SimplifiedBitvmGcGraph,
+    verifier_endorsements: &[(PublicKey, usize, SchnorrSignature)],
+) -> Result<()> {
+    let expected_verifier_num = graph.parameters.gc_data.len();
+    if verifier_endorsements.len() != expected_verifier_num {
+        bail!(SpecialError::InvalidGraph(format!(
+            "verifier params endorsement count {} does not match GC slot count {}",
+            verifier_endorsements.len(),
+            expected_verifier_num
+        )));
+    }
+
+    let mut seen_pubkeys = std::collections::HashSet::new();
+    let mut seen_indices = std::collections::HashSet::new();
+    for (verifier_pubkey, verifier_index, signature) in verifier_endorsements {
+        if *verifier_index >= expected_verifier_num {
+            bail!(SpecialError::InvalidGraph(format!(
+                "verifier params endorsement index {verifier_index} out of range"
+            )));
+        }
+        let slot_pubkey = graph.parameters.gc_data[*verifier_index].verifier_pubkey;
+        if slot_pubkey != *verifier_pubkey {
+            bail!(SpecialError::InvalidGraph(format!(
+                "verifier params endorsement slot mismatch at index {verifier_index}: signature pubkey={}, graph pubkey={slot_pubkey}",
+                verifier_pubkey
+            )));
+        }
+        if !seen_pubkeys.insert(*verifier_pubkey) {
+            bail!(SpecialError::InvalidGraph(format!(
+                "duplicate verifier params endorsement pubkey: {verifier_pubkey}"
+            )));
+        }
+        if !seen_indices.insert(*verifier_index) {
+            bail!(SpecialError::InvalidGraph(format!(
+                "duplicate verifier params endorsement index: {verifier_index}"
+            )));
+        }
+        let ok = verify_verifier_graph_params_endorsement(verifier_pubkey, graph, signature)?;
+        if !ok {
+            bail!(SpecialError::InvalidGraph(format!(
+                "invalid verifier params endorsement signature for {verifier_pubkey}"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn validate_init_graph(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    graph: &SimplifiedBitvmGcGraph,
+    verifier_endorsements: &[(PublicKey, usize, SchnorrSignature)],
+) -> Result<()> {
+    validate_init_graph_base(local_db, btc_client, goat_client, graph).await?;
+    validate_verifier_graph_params_endorsements(graph, verifier_endorsements)?;
+    Ok(())
+}
+pub async fn validate_finalized_graph(
+    btc_client: &BTCClient,
+    goat_client: &GOATClient,
+    graph: &SimplifiedBitvmGcGraph,
+    endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
+    params_endorse_sigs: &[(PublicKey, EvmAddress, Vec<u8>)],
+) -> Result<()> {
+    if !graph.operator_pre_signed() || !graph.committee_pre_signed() {
+        bail!(SpecialError::InvalidGraph(
+            "finalized graph is missing operator or committee pre-signatures".to_string()
+        ));
+    }
+    // 1) Rebuild full graph to ensure structure is coherent and txns derivable
+    let full_graph = BitvmGcGraph::from_simplified(graph)
+        .map_err(|e| SpecialError::InvalidGraph(format!("invalid graph structure: {e}")))?;
+    validate_graph_policy(&graph.parameters)?;
+    verify_graph_operator_pre_signatures(&full_graph)
+        .map_err(|e| SpecialError::InvalidGraph(format!("invalid operator pre-signatures: {e}")))?;
+    verify_graph_committee_pre_signatures(&full_graph).map_err(|e| {
+        SpecialError::InvalidGraph(format!("invalid committee pre-signatures: {e}"))
+    })?;
+
+    // 2) Repeat the full instance and peg-in binding for nodes that did not see CreateGraph.
+    validate_graph_instance_parameters(
+        btc_client,
+        goat_client,
+        &graph.parameters.instance_parameters,
+    )
+    .await?;
+
+    let instance_id = graph.parameters.instance_parameters.instance_id;
+    if graph.parameters.challenge_amount != challenge_amount() {
+        bail!(SpecialError::InvalidGraph("unexpected challenge amount".to_string()));
+    }
+
+    let watchtowers_on_chain = goat_client.committee_mana_get_watchtowers().await.map_err(|e| {
+        SpecialError::InvalidGraph(format!("failed to load watchtowers from chain: {e}"))
+    })?;
+    validate_watchtower_selection(
+        &graph.parameters.watchtower_pubkeys,
+        &watchtowers_on_chain,
+        *graph.parameters.graph_id.as_bytes(),
+        get_genesis_sequencer_commit_id(),
+        full_graph.watchtower_challenge_init.tx().compute_txid().to_byte_array(),
+        graph.parameters.pubin_disprove_constant,
+    )?;
+
+    // 3) Validate endorsements: unique, from legitimate committee members, and signatures recover to the provided EVM address
+    use std::collections::HashSet;
+    let mut seen_committee: HashSet<PublicKey> = HashSet::new();
+    let mut seen_evm: HashSet<EvmAddress> = HashSet::new();
+    let pegin_data = goat_client
+        .gateway_get_pegin_data(&instance_id)
+        .await
+        .map_err(|e| SpecialError::InvalidGraph(format!("failed to load instance data: {e}")))?;
+    if pegin_data.committee_pubkeys.len() != pegin_data.committee_addresses.len() {
+        bail!(SpecialError::InvalidGraph(
+            "on-chain committee pubkey and address counts differ".to_string()
+        ));
+    }
+    if endorse_sigs.len() != pegin_data.committee_pubkeys.len() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "endorsement count {} does not match instance committee count {}",
+            endorse_sigs.len(),
+            pegin_data.committee_pubkeys.len()
+        )));
+    }
+    if params_endorse_sigs.len() != pegin_data.committee_pubkeys.len() {
+        bail!(SpecialError::InvalidGraph(format!(
+            "params endorsement count {} does not match instance committee count {}",
+            params_endorse_sigs.len(),
+            pegin_data.committee_pubkeys.len()
+        )));
+    }
+
+    for (pk, evm_addr, sig) in endorse_sigs.iter() {
+        // no duplicates
+        if !seen_committee.insert(*pk) {
+            bail!(SpecialError::InvalidGraph(
+                "duplicate committee pubkey in endorsements".to_string()
+            ));
+        }
+        if !seen_evm.insert(*evm_addr) {
+            bail!(SpecialError::InvalidGraph("duplicate evm address in endorsements".to_string()));
+        }
+
+        // map pubkey -> expected evm address from GoatChain
+        let mut found = false;
+        for i in 0..pegin_data.committee_pubkeys.len() {
+            let on_chain_pk =
+                PublicKey::from_slice(&pegin_data.committee_pubkeys[i]).map_err(|e| {
+                    SpecialError::InvalidGraph(format!("invalid committee pubkey on-chain: {e}"))
+                })?;
+            if &on_chain_pk == pk {
+                found = true;
+                let expected_addr = pegin_data.committee_addresses[i];
+                if &expected_addr != evm_addr {
+                    bail!(SpecialError::InvalidGraph("committee evm address mismatch".to_string()));
+                }
+                break;
+            }
+        }
+        if !found {
+            bail!(SpecialError::InvalidGraph("endorser not in committee set".to_string()));
+        }
+
+        // cryptographically verify the endorsement against the graph digest
+        let ok = verify_graph_endorsement(goat_client, evm_addr, &full_graph, sig).await.map_err(
+            |e| SpecialError::InvalidGraph(format!("failed to verify endorsement: {e}")),
+        )?;
+        if !ok {
+            bail!(SpecialError::InvalidGraph("invalid endorsement signature".to_string()));
+        }
+    }
+
+    let mut seen_committee: HashSet<PublicKey> = HashSet::new();
+    let mut seen_evm: HashSet<EvmAddress> = HashSet::new();
+    for (pk, evm_addr, sig) in params_endorse_sigs.iter() {
+        if !seen_committee.insert(*pk) {
+            bail!(SpecialError::InvalidGraph(
+                "duplicate committee pubkey in params endorsements".to_string()
+            ));
+        }
+        if !seen_evm.insert(*evm_addr) {
+            bail!(SpecialError::InvalidGraph(
+                "duplicate evm address in params endorsements".to_string()
+            ));
+        }
+
+        let mut found = false;
+        for i in 0..pegin_data.committee_pubkeys.len() {
+            let on_chain_pk =
+                PublicKey::from_slice(&pegin_data.committee_pubkeys[i]).map_err(|e| {
+                    SpecialError::InvalidGraph(format!("invalid committee pubkey on-chain: {e}"))
+                })?;
+            if &on_chain_pk == pk {
+                found = true;
+                let expected_addr = pegin_data.committee_addresses[i];
+                if &expected_addr != evm_addr {
+                    bail!(SpecialError::InvalidGraph(
+                        "committee evm address mismatch in params endorsements".to_string()
+                    ));
+                }
+                break;
+            }
+        }
+        if !found {
+            bail!(SpecialError::InvalidGraph("params endorser not in committee set".to_string()));
+        }
+
+        let ok = verify_graph_params_endorsement(evm_addr, &full_graph, sig).map_err(|e| {
+            SpecialError::InvalidGraph(format!("failed to verify params endorsement: {e}"))
+        })?;
+        if !ok {
+            bail!(SpecialError::InvalidGraph("invalid params endorsement signature".to_string()));
+        }
+    }
+
+    Ok(())
+}
+pub fn prekickoff_replenishment_amount() -> Amount {
+    Amount::from_sat(500000)
+}
+pub fn min_prekickoff_input_amount() -> Amount {
+    Amount::from_sat(200000)
+}
+pub fn challenge_amount() -> Amount {
+    Amount::from_sat(20000)
+}
+pub fn prekickoff_fee_amount(replenish_fee_inputs_num: usize) -> Amount {
+    let tx_vbytes =
+        PRE_KICKOFF_BASE_VBYTES + (replenish_fee_inputs_num as u64 * CHEKSIG_P2WSH_INPUT_VBYTES);
+    Amount::from_sat(tx_vbytes)
+}
 pub mod evm_swap_utils {
     use super::*;
     use crate::utils::evm_swap_utils::IEscrowManager::{EscrowData, IEscrowManagerCalls};
@@ -3292,7 +3259,7 @@ pub async fn build_genesis_prekickoff_tx(
     goat_client: &GOATClient,
 ) -> Result<PrekickoffTransaction> {
     let watchtower_num = goat_client.committee_mana_get_watchtowers().await?.len();
-    let verifier_num = todo_funcs::min_required_verifier();
+    let verifier_num = min_required_verifier();
     let network = get_network();
     let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
     let node_keypair = operator_master_key.master_keypair();
@@ -3301,7 +3268,7 @@ pub async fn build_genesis_prekickoff_tx(
     let next_force_skip_connector = ForceSkipConnector::new(network, &operator_taproot_public_key);
     let next_kickoff_connector = KickoffConnector::new(network, &operator_taproot_public_key);
     let next_prekickoff_connector = PrekickoffConnector::new(network, &operator_taproot_public_key);
-    let init_amount = todo_funcs::prekickoff_replenishment_amount();
+    let init_amount = prekickoff_replenishment_amount();
     let cur_prekickoff_connector_input = Input {
         outpoint: fund_address(
             btc_client,
@@ -3312,7 +3279,7 @@ pub async fn build_genesis_prekickoff_tx(
         .await?,
         amount: init_amount,
     };
-    let fee_amount = todo_funcs::prekickoff_fee_amount(0);
+    let fee_amount = prekickoff_fee_amount(0);
     PrekickoffTransaction::new_for_validation(
         &cur_prekickoff_connector,
         &next_force_skip_connector,
@@ -3338,17 +3305,17 @@ pub async fn build_prekickoff_params(
         .map_err(|e| anyhow!("failed to get pre-kickoff connector input: {e}"))?
         .amount;
     let (replenish_fee_inputs, replenish_fee_prev_outs, fee_amount) = if prekickoff_remaining_amount
-        >= todo_funcs::min_prekickoff_input_amount()
+        >= min_prekickoff_input_amount()
     {
         // no need to replenish funds
-        (vec![], vec![], todo_funcs::prekickoff_fee_amount(0))
+        (vec![], vec![], prekickoff_fee_amount(0))
     } else {
         let network = get_network();
         let operator_master_key = OperatorMasterKey::new(get_bitvm_key()?);
         let master_keypair = operator_master_key.master_keypair();
         let nonce_keypair = operator_master_key.keypair_for_nonce(graph_nonce);
         let nonce_address = node_p2wsh_address(network, &nonce_keypair.public_key().into());
-        let replenishment_amount = todo_funcs::prekickoff_replenishment_amount();
+        let replenishment_amount = prekickoff_replenishment_amount();
         let mut replenish_fee_inputs: Vec<Input> = btc_client
             .get_address_utxo(nonce_address.clone())
             .await?
@@ -3374,7 +3341,7 @@ pub async fn build_prekickoff_params(
             .iter()
             .map(|i| TxOut { value: i.amount, script_pubkey: nonce_address.script_pubkey() })
             .collect();
-        let fee_amount = todo_funcs::prekickoff_fee_amount(replenish_fee_inputs.len());
+        let fee_amount = prekickoff_fee_amount(replenish_fee_inputs.len());
         (replenish_fee_inputs, replenish_fee_prev_outs, fee_amount)
     };
     Ok(PrekickoffParameters {
@@ -3413,14 +3380,14 @@ pub async fn build_graph_params(
             .to_byte_array()
         })
         .collect();
-    todo_funcs::validate_watchtower_registry_selection(&watchtower_pubkeys, &watchtower_pubkeys)?;
+    validate_watchtower_registry_selection(&watchtower_pubkeys, &watchtower_pubkeys)?;
     Ok(BitvmGcGraphParameters {
         instance_parameters,
         prekickoff_parameters,
         timelock_config: default_timelock_config(network),
         graph_id,
         graph_nonce,
-        challenge_amount: todo_funcs::challenge_amount(),
+        challenge_amount: challenge_amount(),
         operator_pubkey,
         operator_assert_wots_pubkey,
         operator_commit_pubin_wots_pubkey,
@@ -5395,8 +5362,7 @@ pub async fn get_endorsed_graph_count(local_db: &LocalDB, instance_id: Uuid) -> 
 }
 
 pub async fn has_required_presigned_graphs(local_db: &LocalDB, instance_id: Uuid) -> Result<bool> {
-    Ok(get_endorsed_graph_count(local_db, instance_id).await?
-        >= todo_funcs::min_required_operator())
+    Ok(get_endorsed_graph_count(local_db, instance_id).await? >= min_required_operator())
 }
 
 pub async fn try_transition_instance_to_presigned(
