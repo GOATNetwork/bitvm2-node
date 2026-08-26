@@ -4520,19 +4520,28 @@ async fn handle_prekickoff_sent_verifier(
 ) -> Result<()> {
     // triggered by PreKickoff tx
     let message = make_message(ctx, content);
-    let (graph, _graph_status, _graph_sub_status) = match refresh_graph_status(
-        ctx,
-        instance_id,
-        graph_id,
-        Some(&message),
-        GraphStatus::PreKickoff,
-    )
-    .await?
-    {
-        Some(v) => v,
+    let graph = match get_graph_for_refresh_or_defer(ctx, instance_id, graph_id, &message).await? {
+        Some(graph) => graph,
         None => return Ok(()),
     };
-    // 1. check the previous graph status
+
+    let (_, _, status_transition_accepted) =
+        refresh_and_compensate(ctx, instance_id, graph_id, &graph, GraphStatus::PreKickoff).await?;
+    if !status_transition_accepted {
+        // PreKickoffSent may arrive after KickoffSent or an event-watcher
+        // update. The state transition is then correctly rejected as stale,
+        // but the confirmed pre-kickoff still proves that the previous graph
+        // must be reconciled.
+        tracing::info!(
+            event = "prekickoff_reconciliation",
+            outcome = "current_status_stale",
+            "reconciling previous graph despite stale PreKickoff transition"
+        );
+    }
+
+    // Check the previous graph independently from whether this graph could
+    // still transition to PreKickoff. The helper revalidates the on-chain
+    // pre-kickoff transaction before it can broadcast any disprove action.
     handle_previous_graph_after_prekickoff(ctx, instance_id, graph_id, &graph, &message).await?;
     Ok(())
 }
