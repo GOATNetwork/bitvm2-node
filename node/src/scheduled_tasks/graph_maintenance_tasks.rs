@@ -6,7 +6,9 @@ use crate::action::{
 };
 use crate::env::get_network;
 use crate::rpc_service::current_time_secs;
-use crate::scheduled_tasks::fetch_on_turn_graph_by_status;
+use crate::scheduled_tasks::{
+    fetch_all_graphs_by_status, fetch_first_graph_per_operator_by_status,
+};
 use crate::utils::{
     SELF_SENDER, load_validated_graph_definition, outpoint_spent_txid, upsert_message,
 };
@@ -21,6 +23,7 @@ use client::btc_chain::BTCClient;
 use client::goat_chain::DisproveTxType;
 use goat::{constants::TimelockConfig, transactions::base::output_topology};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use store::localdb::{LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxType, Graph, GraphBtcTxVoutMonitor, GraphStatus, SerializableTxid,
@@ -33,6 +36,7 @@ const MONITE_BTC_TX_NAME_KICKOFF: &str = "kickoff";
 const MONITE_BTC_TX_NAME_WATCHTOWER_INIT: &str = "watchtower_init";
 const MONITE_BTC_TX_NAME_PROVER_ASSERT: &str = "prover_assert";
 const MONITE_BTC_TX_NAME_VERIFIER_ASSERT: &str = "verifier_assert";
+const MAX_PREKICKOFF_SUCCESSORS_PER_SCAN: usize = 32;
 
 #[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
 enum OperatorWithdrawType {
@@ -282,49 +286,192 @@ pub async fn detect_init_withdraw_call(local_db: &LocalDB) -> anyhow::Result<()>
     Ok(())
 }
 
-/// may trigger: KickoffSent
+async fn enqueue_kickoff_sent(local_db: &LocalDB, graph: &Graph) -> anyhow::Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    upsert_message(
+        &mut storage_processor,
+        false,
+        graph.graph_id,
+        None,
+        SELF_SENDER.to_string(),
+        Actor::All,
+        GOATMessageContent::KickoffSent(KickoffSent {
+            instance_id: graph.instance_id,
+            graph_id: graph.graph_id,
+        }),
+        0,
+        0,
+    )
+    .await
+}
+
+async fn enqueue_prekickoff_sent(local_db: &LocalDB, graph: &Graph) -> anyhow::Result<()> {
+    let mut storage_processor = local_db.acquire().await?;
+    upsert_message(
+        &mut storage_processor,
+        false,
+        graph.graph_id,
+        None,
+        SELF_SENDER.to_string(),
+        Actor::Verifier,
+        GOATMessageContent::PreKickoffSent(PreKickoffSent {
+            instance_id: graph.instance_id,
+            graph_id: graph.graph_id,
+        }),
+        0,
+        0,
+    )
+    .await
+}
+
+fn is_kickoff_pending_status(status: &str) -> bool {
+    status == GraphStatus::OperatorDataPushed.to_string()
+        || status == GraphStatus::PreKickoff.to_string()
+}
+
+async fn detect_graph_kickoff(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    graph: &Graph,
+) -> anyhow::Result<()> {
+    if !is_kickoff_pending_status(&graph.status) {
+        return Ok(());
+    }
+
+    let Some(kickoff_txid) = graph.kickoff_txid.clone() else {
+        warn!(graph_id = %graph.graph_id, "kickoff txid is missing");
+        return Ok(());
+    };
+    let kickoff_txid: Txid = kickoff_txid.into();
+    let tx_status = btc_client.get_tx_status(&kickoff_txid).await?;
+    if tx_status.confirmed {
+        enqueue_kickoff_sent(local_db, graph).await?;
+    } else {
+        trace!(graph_id = %graph.graph_id, kickoff_txid = %kickoff_txid, "kickoff is not confirmed yet");
+    }
+    Ok(())
+}
+
+async fn confirmed_prekickoff_successor(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    graph: &Graph,
+) -> anyhow::Result<Option<Graph>> {
+    let Some(next_prekickoff) = graph.next_prekickoff.clone() else {
+        return Ok(None);
+    };
+    let next_prekickoff_txid: Txid = next_prekickoff.clone().into();
+    if !btc_client.get_tx_status(&next_prekickoff_txid).await?.confirmed {
+        return Ok(None);
+    }
+
+    let successor = {
+        let mut storage_processor = local_db.acquire().await?;
+        let Some((graph_id, instance_id, cur_prekickoff, _)) = storage_processor
+            .get_graph_pre_kickoff_chain_by_cur_pre_kickoff(next_prekickoff.clone())
+            .await?
+        else {
+            warn!(
+                graph_id = %graph.graph_id,
+                next_prekickoff_txid = %next_prekickoff_txid,
+                "confirmed next prekickoff has no successor graph"
+            );
+            return Ok(None);
+        };
+        let successor = storage_processor.find_graph(&graph_id).await?.ok_or_else(|| {
+            anyhow::anyhow!("pre-kickoff successor graph {graph_id} disappeared from storage")
+        })?;
+        if successor.instance_id != instance_id
+            || successor.cur_prekickoff_txid != Some(cur_prekickoff)
+            || successor.operator_pubkey != graph.operator_pubkey
+            || successor.kickoff_index != graph.kickoff_index + 1
+        {
+            anyhow::bail!(
+                "invalid pre-kickoff successor {} for graph {}",
+                successor.graph_id,
+                graph.graph_id
+            );
+        }
+        successor
+    };
+
+    Ok(Some(successor))
+}
+
+async fn scan_kickoff_chain(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    start_graph: Graph,
+    visited_graph_ids: &mut HashSet<Uuid>,
+) -> anyhow::Result<()> {
+    let mut graph = start_graph;
+    for successor_depth in 0..=MAX_PREKICKOFF_SUCCESSORS_PER_SCAN {
+        if !visited_graph_ids.insert(graph.graph_id) {
+            return Ok(());
+        }
+
+        // A failed lookup for the lower-index kickoff must not hide a
+        // confirmed successor pre-kickoff in the same scan.
+        if let Err(error) = detect_graph_kickoff(local_db, btc_client, &graph).await {
+            warn!(
+                graph_id = %graph.graph_id,
+                error = %error,
+                "failed to scan graph kickoff; continuing pre-kickoff chain"
+            );
+        }
+        let Some(successor) = confirmed_prekickoff_successor(local_db, btc_client, &graph).await?
+        else {
+            return Ok(());
+        };
+
+        if successor_depth == MAX_PREKICKOFF_SUCCESSORS_PER_SCAN {
+            warn!(
+                graph_id = %graph.graph_id,
+                max_depth = MAX_PREKICKOFF_SUCCESSORS_PER_SCAN,
+                "stopped pre-kickoff successor scan at configured depth limit"
+            );
+            return Ok(());
+        }
+
+        enqueue_prekickoff_sent(local_db, &successor).await?;
+        graph = successor;
+    }
+    Ok(())
+}
+
+/// May trigger PreKickoffSent and KickoffSent.
+///
+/// The first OperatorDataPushed graph is the normal scan entry point for an
+/// operator. A confirmed `next_prekickoff` proves that the next graph has
+/// started, so follow that chain instead of letting the earlier graph hide it.
 pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyhow::Result<()> {
     trace!("start tick action: detect_kickoff");
     let graphs = {
         let mut storage_processor = local_db.acquire().await?;
-        fetch_on_turn_graph_by_status(
+        let mut graphs = fetch_first_graph_per_operator_by_status(
             &mut storage_processor,
             &GraphStatus::OperatorDataPushed.to_string(),
         )
-        .await?
-    };
-    info!("start tick action: detect_kickoff, graphs: {}", graphs.len());
-    for graph in graphs {
-        let kickoff_txid: Txid = match graph.kickoff_txid.clone() {
-            Some(kickoff_txid) => kickoff_txid.into(),
-            _ => {
-                warn!("graph_id {}, kickoff txid or next_pre_kickoff is none", graph.graph_id);
-                continue;
-            }
-        };
-
-        if let Ok(tx_status) = btc_client.get_tx_status(&kickoff_txid).await
-            && tx_status.confirmed
-        {
-            let mut storage_processor = local_db.acquire().await?;
-            upsert_message(
+        .await?;
+        // A PreKickoff graph must remain eligible until its kickoff confirms.
+        graphs.extend(
+            fetch_all_graphs_by_status(
                 &mut storage_processor,
-                false,
-                graph.graph_id,
-                None,
-                SELF_SENDER.to_string(),
-                Actor::All,
-                GOATMessageContent::KickoffSent(KickoffSent {
-                    instance_id: graph.instance_id,
-                    graph_id: graph.graph_id,
-                }),
-                0,
-                0,
+                &GraphStatus::PreKickoff.to_string(),
             )
-            .await?;
-        } else {
-            warn!("graph_id:{} kickoff:{kickoff_txid:?} is not onchain", graph.graph_id);
-            continue;
+            .await?,
+        );
+        graphs
+    };
+    info!("start tick action: detect_kickoff, roots: {}", graphs.len());
+
+    let mut visited_graph_ids = HashSet::new();
+    for graph in graphs {
+        let graph_id = graph.graph_id;
+        if let Err(error) =
+            scan_kickoff_chain(local_db, btc_client, graph, &mut visited_graph_ids).await
+        {
+            warn!(graph_id = %graph_id, error = %error, "failed to scan kickoff chain");
         }
     }
     Ok(())
@@ -339,7 +486,7 @@ pub async fn detect_take1_or_challenge(
 
     let graphs = {
         let mut storage_processor = local_db.acquire().await?;
-        fetch_on_turn_graph_by_status(
+        fetch_all_graphs_by_status(
             &mut storage_processor,
             &GraphStatus::OperatorKickOff.to_string(),
         )
@@ -351,34 +498,50 @@ pub async fn detect_take1_or_challenge(
         graphs.len()
     );
     for graph in graphs {
-        let timelock_config = graph_timelock_config(local_db, graph.graph_id).await?;
-        let lock_blocks = take1_timelock_blocks(get_network(), &timelock_config) as i64;
-        if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
-            warn!(
-                "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
-                graph.graph_id
-            );
-            continue;
-        }
-        // process_kickoff_graph may trigger Take1Ready, Take1Sent or ChallengeSent
-        if let Some((actor, message_content)) =
-            process_kickoff_graph(btc_client, local_db, &graph, lock_blocks, current_height).await?
+        let graph_id = graph.graph_id;
+        if let Err(error) =
+            detect_take1_or_challenge_for_graph(local_db, btc_client, graph, current_height).await
         {
-            info!("process_kickoff_graph detect take1 ready or take1 sent or challenge sent");
-            let mut storage_processor = local_db.acquire().await?;
-            upsert_message(
-                &mut storage_processor,
-                false,
-                graph.graph_id,
-                None,
-                SELF_SENDER.to_string(),
-                actor,
-                message_content,
-                0,
-                0,
-            )
-            .await?;
+            warn!(graph_id = %graph_id, error = %error, "failed to scan operator kickoff graph");
         }
+    }
+    Ok(())
+}
+
+async fn detect_take1_or_challenge_for_graph(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    graph: Graph,
+    current_height: i64,
+) -> anyhow::Result<()> {
+    let timelock_config = graph_timelock_config(local_db, graph.graph_id).await?;
+    let lock_blocks = take1_timelock_blocks(get_network(), &timelock_config) as i64;
+    if detect_kickoff_ref_disprove_tx(btc_client, local_db, &graph).await? {
+        warn!(
+            "process_graph_challenge detect_kickoff_ref_disprove_tx happened at graph:{}",
+            graph.graph_id
+        );
+        return Ok(());
+    }
+
+    // process_kickoff_graph may trigger Take1Ready, Take1Sent or ChallengeSent
+    if let Some((actor, message_content)) =
+        process_kickoff_graph(btc_client, local_db, &graph, lock_blocks, current_height).await?
+    {
+        info!("process_kickoff_graph detect take1 ready or take1 sent or challenge sent");
+        let mut storage_processor = local_db.acquire().await?;
+        upsert_message(
+            &mut storage_processor,
+            false,
+            graph.graph_id,
+            None,
+            SELF_SENDER.to_string(),
+            actor,
+            message_content,
+            0,
+            0,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -392,7 +555,7 @@ pub async fn process_graph_challenge(
 
     let graphs = {
         let mut storage_processor = local_db.acquire().await?;
-        fetch_on_turn_graph_by_status(&mut storage_processor, &GraphStatus::Challenge.to_string())
+        fetch_all_graphs_by_status(&mut storage_processor, &GraphStatus::Challenge.to_string())
             .await?
     };
     let current_height = btc_client.get_height().await? as i64;
@@ -402,63 +565,78 @@ pub async fn process_graph_challenge(
     );
 
     for graph in graphs {
-        let watchtower_flow_messages =
-            detect_watchtower_flow(btc_client, local_db, &graph, current_height).await?;
-        if !watchtower_flow_messages.is_empty() {
-            info!(
-                "process_graph_challenge detected {} watchtower/pubin flow messages",
-                watchtower_flow_messages.len()
-            );
-            upsert_detected_messages(local_db, graph.graph_id, watchtower_flow_messages).await?;
-        }
-
-        let assert_sent_messages = detect_assert_sent_flow(btc_client, local_db, &graph).await?;
-        if !assert_sent_messages.is_empty() {
-            info!(
-                "process_graph_challenge detected {} assert/challenge-assert messages",
-                assert_sent_messages.len()
-            );
-            upsert_detected_messages(local_db, graph.graph_id, assert_sent_messages).await?;
-        }
-
-        if let Some((actor, message_content, sub_type)) =
-            detect_assert_disprove_ready(btc_client, local_db, &graph, current_height).await?
+        let graph_id = graph.graph_id;
+        if let Err(error) =
+            process_graph_challenge_for_graph(local_db, btc_client, graph, current_height).await
         {
-            info!("process_graph_challenge detect assert disprove ready");
-            let mut storage_processor = local_db.acquire().await?;
-            upsert_message(
-                &mut storage_processor,
-                false,
-                graph.graph_id,
-                sub_type,
-                SELF_SENDER.to_string(),
-                actor,
-                message_content,
-                0,
-                0,
-            )
-            .await?;
+            warn!(graph_id = %graph_id, error = %error, "failed to scan challenge graph");
         }
+    }
+    Ok(())
+}
 
-        // take2 monitor
-        if let Some((actor, message_content)) =
-            detect_take2(btc_client, local_db, &graph, current_height).await?
-        {
-            info!("process_graph_challenge detect take2 ready or take2 sent or disprove sent");
-            let mut storage_processor = local_db.acquire().await?;
-            upsert_message(
-                &mut storage_processor,
-                false,
-                graph.graph_id,
-                None,
-                SELF_SENDER.to_string(),
-                actor,
-                message_content,
-                0,
-                0,
-            )
-            .await?;
-        }
+async fn process_graph_challenge_for_graph(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    graph: Graph,
+    current_height: i64,
+) -> anyhow::Result<()> {
+    let watchtower_flow_messages =
+        detect_watchtower_flow(btc_client, local_db, &graph, current_height).await?;
+    if !watchtower_flow_messages.is_empty() {
+        info!(
+            "process_graph_challenge detected {} watchtower/pubin flow messages",
+            watchtower_flow_messages.len()
+        );
+        upsert_detected_messages(local_db, graph.graph_id, watchtower_flow_messages).await?;
+    }
+
+    let assert_sent_messages = detect_assert_sent_flow(btc_client, local_db, &graph).await?;
+    if !assert_sent_messages.is_empty() {
+        info!(
+            "process_graph_challenge detected {} assert/challenge-assert messages",
+            assert_sent_messages.len()
+        );
+        upsert_detected_messages(local_db, graph.graph_id, assert_sent_messages).await?;
+    }
+
+    if let Some((actor, message_content, sub_type)) =
+        detect_assert_disprove_ready(btc_client, local_db, &graph, current_height).await?
+    {
+        info!("process_graph_challenge detect assert disprove ready");
+        let mut storage_processor = local_db.acquire().await?;
+        upsert_message(
+            &mut storage_processor,
+            false,
+            graph.graph_id,
+            sub_type,
+            SELF_SENDER.to_string(),
+            actor,
+            message_content,
+            0,
+            0,
+        )
+        .await?;
+    }
+
+    // take2 monitor
+    if let Some((actor, message_content)) =
+        detect_take2(btc_client, local_db, &graph, current_height).await?
+    {
+        info!("process_graph_challenge detect take2 ready or take2 sent or disprove sent");
+        let mut storage_processor = local_db.acquire().await?;
+        upsert_message(
+            &mut storage_processor,
+            false,
+            graph.graph_id,
+            None,
+            SELF_SENDER.to_string(),
+            actor,
+            message_content,
+            0,
+            0,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -1036,7 +1214,13 @@ async fn detect_kickoff_ref_disprove_tx(
             return Ok(detected);
         }
     };
-    let pre_sents = check_pre_kickoff_sent(local_db, btc_client, next_pre_kickoff, 2).await?;
+    let pre_sents = check_pre_kickoff_sent(
+        local_db,
+        btc_client,
+        next_pre_kickoff,
+        MAX_PREKICKOFF_SUCCESSORS_PER_SCAN,
+    )
+    .await?;
     if pre_sents > 0 {
         info!("graph_id:{} next {pre_sents} graphs's pre_kickoff has been sent!", graph.graph_id);
         detected = true;
@@ -1237,15 +1421,15 @@ async fn check_pre_kickoff_sent(
     local_db: &LocalDB,
     btc_client: &BTCClient,
     pre_kickoff: SerializableTxid,
-    check_level: i32,
+    max_depth: usize,
 ) -> anyhow::Result<usize> {
     let check_graphs = {
         let mut check_graphs: Vec<(Uuid, Uuid, Txid)> = vec![];
         let mut storage_processor = local_db.acquire().await?;
-        let mut check_level = check_level;
+        let mut remaining_depth = max_depth;
         let mut pre_kickoff = pre_kickoff;
 
-        while check_level > 0 {
+        while remaining_depth > 0 {
             if let Some((graph_id, instance_id, cur_pre_kickoff, next_pre_kickoff)) =
                 storage_processor
                     .get_graph_pre_kickoff_chain_by_cur_pre_kickoff(pre_kickoff.clone())
@@ -1253,7 +1437,7 @@ async fn check_pre_kickoff_sent(
             {
                 check_graphs.push((graph_id, instance_id, cur_pre_kickoff.into()));
                 pre_kickoff = next_pre_kickoff;
-                check_level -= 1;
+                remaining_depth -= 1;
             } else {
                 break;
             }

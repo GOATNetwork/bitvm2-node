@@ -157,15 +157,24 @@ async fn refresh_alert_health(
     }
 }
 
-async fn fetch_on_turn_graph_by_status<'a>(
+/// Return every graph in the requested status. Time-sensitive flows must not
+/// let a lower-index graph hide another graph owned by the same operator.
+pub(super) async fn fetch_all_graphs_by_status<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     graph_status: &str,
 ) -> anyhow::Result<Vec<Graph>> {
-    let graphs_ori =
-        storage_processor.find_graphs_by_status_group_by_operator(graph_status).await?;
+    storage_processor.find_graphs_by_status_group_by_operator(graph_status).await
+}
+
+/// Return the lowest-index graph for each operator in the requested status.
+/// This is only suitable as the entry point for a chain-aware scan.
+pub(super) async fn fetch_first_graph_per_operator_by_status<'a>(
+    storage_processor: &mut StorageProcessor<'a>,
+    graph_status: &str,
+) -> anyhow::Result<Vec<Graph>> {
+    let graphs_ori = fetch_all_graphs_by_status(storage_processor, graph_status).await?;
     let mut graphs: Vec<Graph> = vec![];
     let mut pre_operator_pubkey = "".to_string();
-    // Only process one graph for each operator each time
     for graph in graphs_ori {
         if graph.operator_pubkey != pre_operator_pubkey {
             pre_operator_pubkey = graph.operator_pubkey.clone();
