@@ -1141,7 +1141,7 @@ dependencies = [
  "serde",
  "sha2",
  "verifier",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -1315,7 +1315,7 @@ dependencies = [
 [[package]]
 name = "k256"
 version = "0.13.4"
-source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-k256-0.13.4#8266b228a39402a0ba68d644b7f26b85b5112fe3"
+source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-k256-0.13.4#6ad84b9b604911c6f5dd353b88c04927d2739a32"
 dependencies = [
  "cfg-if",
  "ecdsa 0.16.9 (git+https://github.com/ziren-patches/signatures.git?branch=patch-ecdsa-0.16.9)",
@@ -1324,7 +1324,7 @@ dependencies = [
  "once_cell",
  "sha2",
  "signature",
- "zkm-lib 1.2.5",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -1606,14 +1606,14 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "p256"
 version = "0.13.2"
-source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#a6f1a1fb07020d00f627725a20dc336983be3946"
+source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#88d42225abcb639b9bd3a930ac5a14f2262541c8"
 dependencies = [
  "ecdsa 0.16.9 (git+https://github.com/ziren-patches/signatures.git?branch=patch-ecdsa-0.16.9)",
  "elliptic-curve",
  "hex",
  "primeorder",
  "sha2",
- "zkm-lib 1.2.5",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -2073,7 +2073,7 @@ dependencies = [
 [[package]]
 name = "primeorder"
 version = "0.13.1"
-source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#a6f1a1fb07020d00f627725a20dc336983be3946"
+source = "git+https://github.com/ziren-patches/elliptic-curves?branch=patch-p256-0.13.2#88d42225abcb639b9bd3a930ac5a14f2262541c8"
 dependencies = [
  "elliptic-curve",
 ]
@@ -2498,7 +2498,7 @@ dependencies = [
 [[package]]
 name = "substrate-bn"
 version = "0.6.0"
-source = "git+https://github.com/ziren-patches/bn?branch=patch-0.6.0#aba71380457d798039111e6cc0fdf2e0718c6766"
+source = "git+https://github.com/ziren-patches/bn?branch=patch-0.6.0#0dfeeb1b7bfc21941b6e4964d678abd094a54a6f"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -2508,7 +2508,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "rand",
  "rustc-hex",
- "zkm-lib 1.2.5",
+ "zkm-lib",
 ]
 
 [[package]]
@@ -3251,7 +3251,7 @@ dependencies = [
  "typenum",
  "vec_map",
  "zkm-curves",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -3303,7 +3303,7 @@ dependencies = [
  "zkm-core-executor",
  "zkm-curves",
  "zkm-derive",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -3327,7 +3327,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "typenum",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -3343,19 +3343,6 @@ dependencies = [
 
 [[package]]
 name = "zkm-lib"
-version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
-dependencies = [
- "bincode",
- "cfg-if",
- "elliptic-curve",
- "serde",
- "sha2",
- "zkm-primitives 1.2.5",
-]
-
-[[package]]
-name = "zkm-lib"
 version = "1.2.7"
 source = "git+https://github.com/ProjectZKM/Ziren?tag=v1.2.7#7dc2037c6ef99d5772c756556350698fad01c559"
 dependencies = [
@@ -3364,25 +3351,7 @@ dependencies = [
  "elliptic-curve",
  "serde",
  "sha2",
- "zkm-primitives 1.2.7",
-]
-
-[[package]]
-name = "zkm-primitives"
-version = "1.2.5"
-source = "git+https://github.com/ProjectZKM/Ziren#c736a41cccd623427295f89b53306673adc89966"
-dependencies = [
- "bincode",
- "hex",
- "lazy_static",
- "num-bigint 0.4.6",
- "p3-field",
- "p3-koala-bear",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "serde",
- "sha2",
+ "zkm-primitives",
 ]
 
 [[package]]
@@ -3438,7 +3407,7 @@ dependencies = [
  "zkhash",
  "zkm-core-machine",
  "zkm-derive",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-stark",
 ]
 
@@ -3480,7 +3449,7 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber",
  "zkm-derive",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-zkvm",
 ]
 
@@ -3509,7 +3478,7 @@ dependencies = [
  "thiserror 2.0.18",
  "zkm-core-executor",
  "zkm-core-machine",
- "zkm-primitives 1.2.7",
+ "zkm-primitives",
  "zkm-recursion-core",
  "zkm-stark",
 ]
@@ -3530,8 +3499,8 @@ dependencies = [
  "rand",
  "serde",
  "sha2",
- "zkm-lib 1.2.7",
- "zkm-primitives 1.2.7",
+ "zkm-lib",
+ "zkm-primitives",
 ]
 
 [[package]]
