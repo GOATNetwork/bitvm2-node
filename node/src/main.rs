@@ -131,6 +131,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_span_list(true)
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
+    let min_required_verifier = env::get_min_required_verifier()?;
     validate_soldering_proof_payload_store_config(&actor)?;
 
     let is_publisher = actor == Actor::Publisher || actor == Actor::All;
@@ -202,6 +203,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         bitcoin_network = ?get_network(),
         version = env!("CARGO_PKG_VERSION"),
         rpc_addr = %opt.rpc_addr,
+        min_required_verifier,
         "node initialization completed"
     );
 

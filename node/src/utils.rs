@@ -194,8 +194,8 @@ pub mod todo_funcs {
         1
     }
     pub fn min_required_verifier() -> usize {
-        // todo!("get verifier num")
-        1
+        get_min_required_verifier()
+            .unwrap_or_else(|error| panic!("invalid verifier count configuration: {error}"))
     }
 
     /// Checks graph Watchtower membership, uniqueness, and supported count.

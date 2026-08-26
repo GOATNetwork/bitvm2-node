@@ -58,6 +58,9 @@ Create a `.env` file and include necessary environment variables:
 | `GOAT_SWAP_EVENT_THE_GRAPH_URL` | The Graph URL for querying Swap events | Optional |
 | `BOOTNODES` | Multiaddr of bootnodes for P2P discovery | Optional |
 | `NODE_NAME` | The name of the node | Optional |
+| `MIN_REQUIRED_VERIFIER` | Positive verifier-slot count for newly created graphs (default: `1`); must be identical on all participating nodes | Optional |
+
+`MIN_REQUIRED_VERIFIER` changes the transaction topology of newly created graphs. It does not add Verifier slots to existing finalized graphs, which continue to use the slots embedded when they were created. Configure the same value on every Operator, Verifier, Committee, Watchtower, and Relayer node before creating new graphs.
 
 ## Roles Deployment
 

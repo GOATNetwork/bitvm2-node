@@ -60,6 +60,7 @@ pub const ENV_PROOF_SEVER_URL: &str = "PROOF_SEVER_URL";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
+pub const ENV_MIN_REQUIRED_VERIFIER: &str = "MIN_REQUIRED_VERIFIER";
 pub const ENV_EXTERNAL_SOCKET_ADDR: &str = "EXTERNAL_SOCKET_ADDR";
 pub const COMMITTEE_INSTANCE_KEYS_DIR: &str = "cache/committee-instance-keys/";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
@@ -69,6 +70,7 @@ pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
 pub const MAX_CUSTOM_INPUTS: usize = 100;
 
 pub const DEFAULT_CONFIRMATION_TARGET: u16 = 1;
+pub const DEFAULT_MIN_REQUIRED_VERIFIER: usize = 1;
 
 pub const ENV_BITCOIN_NETWORK: &str = "BITCOIN_NETWORK";
 pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
@@ -575,6 +577,16 @@ pub fn get_operator_proof_wait_secs() -> usize {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(DEFAULT_OPERATOR_PROOF_WAIT_SECS)
+}
+
+pub fn get_min_required_verifier() -> anyhow::Result<usize> {
+    match std::env::var(ENV_MIN_REQUIRED_VERIFIER) {
+        Err(std::env::VarError::NotPresent) => Ok(DEFAULT_MIN_REQUIRED_VERIFIER),
+        Err(error) => Err(anyhow::anyhow!("failed to read {ENV_MIN_REQUIRED_VERIFIER}: {error}")),
+        Ok(value) => value.parse::<usize>().ok().filter(|value| *value > 0).ok_or_else(|| {
+            anyhow::anyhow!("{ENV_MIN_REQUIRED_VERIFIER} must be a positive integer, got {value:?}")
+        }),
+    }
 }
 
 pub fn get_soldering_proof_payload_store_path() -> anyhow::Result<String> {
