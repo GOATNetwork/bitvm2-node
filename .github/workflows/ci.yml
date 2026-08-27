@@ -47,83 +47,100 @@ jobs:
           mkdir -p ~/.local/share/tlaplus
           curl -sL -o ~/.local/share/tlaplus/tla2tools.jar \
             https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
-      # This audit pass proves bugs exist in CURRENT code and proves correct
-      # fix designs for them - the fixes are NOT yet applied to the Rust code
-      # (see node/README.md's "Known gap" sections). These configs model the
-      # verified fix designs (or a baseline that was never buggy) and must
-      # always pass. See root README.md's "Formal verification (TLA+)"
-      # section for what each spec covers.
-      - name: Run baseline + proposed-fix specs (must pass)
+      # One declarative spec table + a generic router. Each spec carries a
+      # `tier`:
+      #   pass       - a fix/baseline design; MUST verify clean (else a fix
+      #                design regressed).
+      #   historical - a bug already fixed in the code; the frozen spec MUST
+      #                still reproduce its counterexample. An unexpected PASS
+      #                means the spec drifted (no longer demonstrates the bug)
+      #                or a landed fix was reverted -> hard fail.
+      #   live       - a known-unfixed bug; while its spec still reproduces the
+      #                counterexample it is an OPEN finding that BLOCKS merge.
+      #                To clear it: fix the code, then change its tier to
+      #                `historical` here (the spec is frozen and cannot detect
+      #                the code fix on its own).
+      # Adding any future finding is one row; that is the whole maintenance
+      # surface. No per-issue logic lives in the script below.
+      - name: TLA+ formal verification (verify fixes, reproduce fixed bugs, block live ones)
         working-directory: node/tla
         run: |
-          set -e
+          set -u
           JAR=~/.local/share/tlaplus/tla2tools.jar
-          java -jar "$JAR" -config GraphLifecycleCoreOnly.cfg GraphLifecycle.tla
-          java -jar "$JAR" -config GraphLifecycleFixed.cfg GraphLifecycle.tla
-          java -jar "$JAR" -config GraphLifecycleFineGrainedFixed.cfg GraphLifecycleFineGrainedFixed.tla
-          java -jar "$JAR" -config InstancePresignedFixed.cfg InstancePresigned.tla
-          java -jar "$JAR" -config Take2DisproveRace.cfg Take2DisproveRace.tla
-          java -jar "$JAR" -config MultiActorRace.cfg MultiActorRace.tla
-          java -jar "$JAR" -config InstanceBridgeOutRaceFixed.cfg InstanceBridgeOutRace.tla
-          java -jar "$JAR" -config MessageStateRaceFixed.cfg MessageStateRace.tla
-          java -jar "$JAR" -config Take1ChallengeRaceFixed.cfg Take1ChallengeRace.tla
-          # Issue #429 fix design (defer/retry) and issue #431 shipped fix
-          # (scan_kickoff_chain, adequate depth) - must pass.
-          java -jar "$JAR" -config VerifierKickoffFailOpenFixed.cfg VerifierKickoffFailOpen.tla
-          java -jar "$JAR" -config KickoffScanCoverageFixed.cfg KickoffScanCoverage.tla
-      # This job's earlier design (while all 8 findings from this round were
-      # still genuinely unfixed) made this step - and everything gated
-      # behind it - fail for as long as any bug config still reproduced its
-      # counterexample. As of commit 991faaa, every one of those findings
-      # has actually been fixed in the shipped Rust code (see
-      # audit/TLAPlus-20260630.md) - keeping the job permanently red past
-      # that point stopped being useful: these bug configs' constants are
-      # frozen historical snapshots (e.g. Take1ChallengeRace.tla's
-      # ConnectorA), not live readings of the current Rust source, so they
-      # can never detect a real code regression by themselves - they will
-      # keep reproducing the same counterexample forever regardless of
-      # what the Rust code does. Their only genuine ongoing signal is the
-      # OPPOSITE direction: if one of them ever unexpectedly STOPS
-      # reproducing its counterexample, that means the spec itself was
-      # edited into no longer demonstrating the bug it's supposed to -
-      # that's the one case this step still treats as a hard failure.
-      # Otherwise, a bug config correctly still failing is expected and
-      # does not fail the job - it's just printed as an informational
-      # reproduction pointer.
-      - name: Confirm known-bug specs still reproduce their counterexample
-        working-directory: node/tla
-        run: |
-          JAR=~/.local/share/tlaplus/tla2tools.jar
+          live_open=0
           {
-            echo "## TLA+ audit: bug-reproduction specs"
+            echo "## TLA+ formal verification"
             echo
-            echo "Each spec below models a known defect. Most are historical (fixed:"
-            echo "Findings 1-9 in commit 991faaa; issue #431 in #451). Some are still"
-            echo "LIVE (issue #429; the #431 depth-cap residual). Correctly reproducing"
-            echo "the counterexample is EXPECTED and does NOT fail this job - it is a"
-            echo "reproduction pointer; only an unexpected PASS (drift) fails. See"
-            echo "\`audit/TLAPlus-20260630.md\` and issues #429/#431."
+            echo "Specs routed by \`tier\`: **pass** (fix/baseline, must verify), **historical**"
+            echo "(fixed bug, must still reproduce its counterexample or it drifted), **live**"
+            echo "(unfixed bug - blocks merge until the code is fixed and the row moved to historical)."
             echo
           } >> "$GITHUB_STEP_SUMMARY"
-          while IFS='|' read -r cfg tla finding; do
-            [ -z "$cfg" ] && continue
-            if java -jar "$JAR" -config "$cfg" "$tla" | grep -q "Model checking completed. No error has been found."; then
-              echo "::error::$tla / $cfg was expected to keep reproducing its historical counterexample but passed instead - the spec itself was likely edited into no longer demonstrating the bug it's supposed to. If the underlying Rust fix was somehow reverted, this is also how you'd find out - either way, investigate before trusting this spec again."
-              exit 1
-            fi
+          # verifies CFG TLA -> true iff TLC reports no violation (spec holds)
+          verifies() { java -jar "$JAR" -config "$1" "$2" 2>/dev/null | grep -q "Model checking completed. No error has been found."; }
+          while IFS='|' read -r tier cfg tla desc; do
+            tier="$(echo "$tier" | tr -d '[:space:]')"
+            cfg="$(echo "$cfg" | tr -d '[:space:]')"
+            tla="$(echo "$tla" | tr -d '[:space:]')"
+            desc="$(echo "$desc" | sed 's/^ *//; s/ *$//')"
+            [ -z "$tier" ] && continue
+            case "$tier" in \#*) continue ;; esac
             repro="cd node/tla && java -jar ~/.local/share/tlaplus/tla2tools.jar -config $cfg $tla"
-            echo "- **$finding** - reproduce: \`$repro\`" >> "$GITHUB_STEP_SUMMARY"
-          done <<'BUGS'
-          GraphLifecycle.cfg|GraphLifecycle.tla|Finding 1: Graph.status race
-          GraphLifecycleFineGrained.cfg|GraphLifecycleFineGrained.tla|Finding 1b: naive guard still unsafe
-          InstancePresignedBug.cfg|InstancePresigned.tla|Finding 2: Instance.status regression past Presigned
-          InstanceBridgeOutRace.cfg|InstanceBridgeOutRace.tla|Finding 6: InstanceBridgeOutStatus resurrection
-          MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection
-          Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check
-          VerifierKickoffFailOpen.cfg|VerifierKickoffFailOpen.tla|Issue #429: verifier KickoffSent challenge is one-shot & fail-open (LIVE on dev - defense skipped on SPV lag, never retried)
-          KickoffScanCoverage.cfg|KickoffScanCoverage.tla|Issue #431: detect_kickoff one-per-operator coverage gap (fixed on dev by #451; kept as historical record)
-          KickoffScanCoverageResidual.cfg|KickoffScanCoverage.tla|Issue #431 residual: MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 scan-depth cap still leaves a deeper decoy chain uncovered
-          BUGS
+            if verifies "$cfg" "$tla"; then result=pass; else result=violation; fi
+            case "$tier" in
+              pass)
+                if [ "$result" != pass ]; then
+                  echo "::error::[pass] $cfg / $tla did NOT verify - a fix or baseline design regressed. Repro: $repro"
+                  exit 1
+                fi
+                echo "- **[verified] $desc**" >> "$GITHUB_STEP_SUMMARY" ;;
+              historical)
+                if [ "$result" = pass ]; then
+                  echo "::error::[historical] $cfg / $tla unexpectedly PASSED - the spec drifted (no longer demonstrates its fixed bug) or a landed fix was reverted. Investigate. Repro: $repro"
+                  exit 1
+                fi
+                echo "- **[fixed] $desc** - still reproduces (regression record). Repro: \`$repro\`" >> "$GITHUB_STEP_SUMMARY" ;;
+              live)
+                if [ "$result" = pass ]; then
+                  echo "::warning::[live] $cfg / $tla no longer reproduces - if you fixed the code, move its tier to 'historical'. Repro: $repro"
+                  echo "- **[live?] $desc** - no longer reproducing (fixed? move to historical)" >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "::error::OPEN BUG (blocks merge): $desc - repro: $repro"
+                  echo "- **[OPEN - blocks merge] $desc** - repro: \`$repro\`" >> "$GITHUB_STEP_SUMMARY"
+                  live_open=$((live_open + 1))
+                fi ;;
+              *) echo "::error::unknown tier '$tier' for $cfg (use pass|historical|live)"; exit 1 ;;
+            esac
+          done <<'SPECS'
+          pass       | GraphLifecycleCoreOnly.cfg         | GraphLifecycle.tla                 | baseline chain-scan state machine is sound
+          pass       | GraphLifecycleFixed.cfg            | GraphLifecycle.tla                 | Finding 1 fix - atomic guard closes Graph.status race
+          pass       | GraphLifecycleFineGrainedFixed.cfg | GraphLifecycleFineGrainedFixed.tla | Finding 1b fix - single-statement atomic CAS
+          pass       | InstancePresignedFixed.cfg         | InstancePresigned.tla              | Finding 2 fix - Instance.status regression guarded
+          pass       | Take2DisproveRace.cfg              | Take2DisproveRace.tla              | Finding 4 - Take2 vs Disprove margin holds (real shipped values)
+          pass       | MultiActorRace.cfg                 | MultiActorRace.tla                 | Finding 5/10 - 1-of-N watchtower/verifier + operator_commit margin
+          pass       | InstanceBridgeOutRaceFixed.cfg     | InstanceBridgeOutRace.tla          | Finding 6 fix - terminal-status guard closes resurrection
+          pass       | MessageStateRaceFixed.cfg          | MessageStateRace.tla               | Finding 7 fix - terminal-guarded resurrect
+          pass       | Take1ChallengeRaceFixed.cfg        | Take1ChallengeRace.tla             | Finding 9 fix - connector_a margin check added
+          pass       | VerifierKickoffFailOpenFixed.cfg   | VerifierKickoffFailOpen.tla        | Issue #429 fix design - defer/retry mirrors committee
+          pass       | KickoffScanCoverageFixed.cfg       | KickoffScanCoverage.tla            | Issue #431 fix - scan_kickoff_chain with adequate depth
+          historical | GraphLifecycle.cfg                 | GraphLifecycle.tla                 | Finding 1: Graph.status race (fixed 991faaa)
+          historical | GraphLifecycleFineGrained.cfg      | GraphLifecycleFineGrained.tla      | Finding 1b: naive guard still unsafe (fixed 991faaa)
+          historical | InstancePresignedBug.cfg           | InstancePresigned.tla              | Finding 2: Instance.status regression past Presigned (fixed 991faaa)
+          historical | InstanceBridgeOutRace.cfg          | InstanceBridgeOutRace.tla          | Finding 6: InstanceBridgeOutStatus resurrection (fixed 991faaa)
+          historical | MessageStateRace.cfg               | MessageStateRace.tla               | Finding 7: MessageState resurrection (fixed 991faaa)
+          historical | Take1ChallengeRace.cfg             | Take1ChallengeRace.tla             | Finding 9: connector_a has no margin check (fixed 991faaa)
+          historical | KickoffScanCoverage.cfg            | KickoffScanCoverage.tla            | Issue #431: detect_kickoff one-per-operator coverage gap (fixed by #451)
+          live       | VerifierKickoffFailOpen.cfg        | VerifierKickoffFailOpen.tla        | Issue #429: verifier KickoffSent fail-open (SPV lag skips Challenge, never retried)
+          live       | KickoffScanCoverageResidual.cfg    | KickoffScanCoverage.tla            | Issue #431 residual: MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 depth cap leaves deeper decoy chains uncovered
+          SPECS
+          if [ "$live_open" -gt 0 ]; then
+            {
+              echo
+              echo "**$live_open live, TLA+-proven bug(s) block merge.** Fix the code, then move each row's tier from \`live\` to \`historical\` in .github/workflows/ci.yml. See issues #429 / #431."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$live_open live TLA+-proven bug(s) remain unfixed and block merge (see annotations above)."
+            exit 1
+          fi
   fmt:
     name: Rustfmt
     needs: tla-plus
