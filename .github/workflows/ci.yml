@@ -19,20 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Runs first and gates everything else (fmt/clippy/test all `needs: tla-plus`
-  # below) - it's the fastest job (seconds, no Rust toolchain to build) and a
-  # failure here means either a real regression the other, much slower jobs
-  # can't catch, or a stale/broken spec - either way not worth burning 30+
-  # minutes of Cargo Test/Clippy compute on before finding out.
-  #
-  # All 8 findings from audit/TLAPlus-20260630.md were fixed in commit
-  # 991faaa, so this job is expected to be GREEN. Its steps still run every
-  # bug config that reproduced the original counterexamples, but a bug
-  # config correctly still failing is no longer treated as a job failure -
-  # see the second step's own comment for why (its constants are frozen
-  # historical snapshots, not a live read of the Rust source, so they can't
-  # detect a regression by staying red; only an unexpected PASS is a real
-  # drift signal now).
+  # Runs independently and in parallel with fmt/clippy/test (no `needs:` gating)
+  # so EVERY check runs on every PR regardless of the others' outcome. It is a
+  # first-class check: it fails (and blocks merge, if branch protection requires
+  # it) whenever a `live` bug spec still reproduces its counterexample. See the
+  # step below - it runs every spec, prints each one's actual TLC result in the
+  # job summary, and routes by tier (pass / historical / live).
   tla-plus:
     name: TLA+ Formal Verification
     runs-on: ubuntu-latest
@@ -67,16 +59,19 @@ jobs:
         run: |
           set -u
           JAR=~/.local/share/tlaplus/tla2tools.jar
+          hard_fail=0
           live_open=0
           {
             echo "## TLA+ formal verification"
             echo
-            echo "Specs routed by \`tier\`: **pass** (fix/baseline, must verify), **historical**"
-            echo "(fixed bug, must still reproduce its counterexample or it drifted), **live**"
-            echo "(unfixed bug - blocks merge until the code is fixed and the row moved to historical)."
+            echo "Every spec is run and its live TLC result reported below. Tiers:"
+            echo "**pass** must verify; **historical** (fixed bug) must still reproduce"
+            echo "its counterexample; **live** (unfixed bug) blocks merge while it does."
             echo
+            echo "| Spec | Tier | TLC result | Status |"
+            echo "|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
-          # verifies CFG TLA -> true iff TLC reports no violation (spec holds)
+          # true iff TLC reports the spec holds (no violation found)
           verifies() { java -jar "$JAR" -config "$1" "$2" 2>/dev/null | grep -q "Model checking completed. No error has been found."; }
           while IFS='|' read -r tier cfg tla desc; do
             tier="$(echo "$tier" | tr -d '[:space:]')"
@@ -86,31 +81,30 @@ jobs:
             [ -z "$tier" ] && continue
             case "$tier" in \#*) continue ;; esac
             repro="cd node/tla && java -jar ~/.local/share/tlaplus/tla2tools.jar -config $cfg $tla"
-            if verifies "$cfg" "$tla"; then result=pass; else result=violation; fi
+            # run the check - never short-circuit; record the real outcome
+            if verifies "$cfg" "$tla"; then tlc="verified (no violation)"; ok=1; else tlc="counterexample found"; ok=0; fi
             case "$tier" in
               pass)
-                if [ "$result" != pass ]; then
-                  echo "::error::[pass] $cfg / $tla did NOT verify - a fix or baseline design regressed. Repro: $repro"
-                  exit 1
-                fi
-                echo "- **[verified] $desc**" >> "$GITHUB_STEP_SUMMARY" ;;
-              historical)
-                if [ "$result" = pass ]; then
-                  echo "::error::[historical] $cfg / $tla unexpectedly PASSED - the spec drifted (no longer demonstrates its fixed bug) or a landed fix was reverted. Investigate. Repro: $repro"
-                  exit 1
-                fi
-                echo "- **[fixed] $desc** - still reproduces (regression record). Repro: \`$repro\`" >> "$GITHUB_STEP_SUMMARY" ;;
-              live)
-                if [ "$result" = pass ]; then
-                  echo "::warning::[live] $cfg / $tla no longer reproduces - if you fixed the code, move its tier to 'historical'. Repro: $repro"
-                  echo "- **[live?] $desc** - no longer reproducing (fixed? move to historical)" >> "$GITHUB_STEP_SUMMARY"
-                else
-                  echo "::error::OPEN BUG (blocks merge): $desc - repro: $repro"
-                  echo "- **[OPEN - blocks merge] $desc** - repro: \`$repro\`" >> "$GITHUB_STEP_SUMMARY"
-                  live_open=$((live_open + 1))
+                if [ "$ok" = 1 ]; then status="OK"; else
+                  status="REGRESSED - fix/baseline no longer verifies"; hard_fail=$((hard_fail+1))
+                  echo "::error::[pass] $cfg / $tla did NOT verify ($desc). Repro: $repro"
                 fi ;;
-              *) echo "::error::unknown tier '$tier' for $cfg (use pass|historical|live)"; exit 1 ;;
+              historical)
+                if [ "$ok" = 0 ]; then status="OK - reproduces (regression record)"; else
+                  status="DRIFT - no longer reproduces (spec edited or fix reverted)"; hard_fail=$((hard_fail+1))
+                  echo "::error::[historical] $cfg / $tla unexpectedly verified ($desc) - investigate drift/revert. Repro: $repro"
+                fi ;;
+              live)
+                if [ "$ok" = 0 ]; then
+                  status="OPEN - blocks merge"; live_open=$((live_open+1)); hard_fail=$((hard_fail+1))
+                  echo "::error::OPEN BUG (blocks merge): $desc. Repro: $repro"
+                else
+                  status="review - no longer reproduces; if fixed, move tier to historical"
+                  echo "::warning::[live] $cfg / $tla no longer reproduces ($desc) - move its tier to 'historical' if the code is fixed. Repro: $repro"
+                fi ;;
+              *) status="UNKNOWN TIER"; hard_fail=$((hard_fail+1)); echo "::error::unknown tier '$tier' for $cfg (use pass|historical|live)" ;;
             esac
+            echo "| \`$tla\` (\`$cfg\`) | $tier | $tlc | $status - $desc |" >> "$GITHUB_STEP_SUMMARY"
           done <<'SPECS'
           pass       | GraphLifecycleCoreOnly.cfg         | GraphLifecycle.tla                 | baseline chain-scan state machine is sound
           pass       | GraphLifecycleFixed.cfg            | GraphLifecycle.tla                 | Finding 1 fix - atomic guard closes Graph.status race
@@ -133,17 +127,16 @@ jobs:
           live       | VerifierKickoffFailOpen.cfg        | VerifierKickoffFailOpen.tla        | Issue #429: verifier KickoffSent fail-open (SPV lag skips Challenge, never retried)
           live       | KickoffScanCoverageResidual.cfg    | KickoffScanCoverage.tla            | Issue #431 residual: MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 depth cap leaves deeper decoy chains uncovered
           SPECS
-          if [ "$live_open" -gt 0 ]; then
-            {
-              echo
-              echo "**$live_open live, TLA+-proven bug(s) block merge.** Fix the code, then move each row's tier from \`live\` to \`historical\` in .github/workflows/ci.yml. See issues #429 / #431."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::$live_open live TLA+-proven bug(s) remain unfixed and block merge (see annotations above)."
+          {
+            echo
+            echo "**Result: $hard_fail check(s) failing, $live_open live bug(s) open.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$hard_fail" -gt 0 ]; then
+            echo "::error::$hard_fail TLA+ check(s) failed ($live_open live bug(s) block merge). See the result table in the job summary."
             exit 1
           fi
   fmt:
     name: Rustfmt
-    needs: tla-plus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -160,7 +153,6 @@ jobs:
           args: --all -- --check
   clippy:
     name: Clippy
-    needs: tla-plus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -179,7 +171,6 @@ jobs:
           cargo clippy --all-targets -- -D warnings
   test:
     name: Cargo Test
-    needs: tla-plus
     runs-on: ubuntu-latest
     strategy:
       matrix:
