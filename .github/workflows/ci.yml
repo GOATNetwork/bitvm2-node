@@ -7,11 +7,9 @@ on:
       - dev
     tags:
       - v[0-9]+.*
+  # Run on every pull request regardless of base branch, so the TLA+ formal-
+  # verification gate (and the rest of CI behind it) runs on ANY PR.
   pull_request:
-    branches:
-      - main
-      - dev
-      - gc-v2
 
 env:
   CARGO_TERM_COLOR: always
@@ -69,6 +67,10 @@ jobs:
           java -jar "$JAR" -config InstanceBridgeOutRaceFixed.cfg InstanceBridgeOutRace.tla
           java -jar "$JAR" -config MessageStateRaceFixed.cfg MessageStateRace.tla
           java -jar "$JAR" -config Take1ChallengeRaceFixed.cfg Take1ChallengeRace.tla
+          # Issue #429 fix design (defer/retry) and issue #431 shipped fix
+          # (scan_kickoff_chain, adequate depth) - must pass.
+          java -jar "$JAR" -config VerifierKickoffFailOpenFixed.cfg VerifierKickoffFailOpen.tla
+          java -jar "$JAR" -config KickoffScanCoverageFixed.cfg KickoffScanCoverage.tla
       # This job's earlier design (while all 8 findings from this round were
       # still genuinely unfixed) made this step - and everything gated
       # behind it - fail for as long as any bug config still reproduced its
@@ -93,12 +95,14 @@ jobs:
         run: |
           JAR=~/.local/share/tlaplus/tla2tools.jar
           {
-            echo "## TLA+ audit: historical bug-reproduction specs"
+            echo "## TLA+ audit: bug-reproduction specs"
             echo
-            echo "These model the PRE-FIX code as a permanent historical record (all"
-            echo "findings below were fixed in commit 991faaa - see"
-            echo "\`audit/TLAPlus-20260630.md\`). Still correctly reproducing their"
-            echo "original counterexample below is expected and does not fail this job."
+            echo "Each spec below models a known defect. Most are historical (fixed:"
+            echo "Findings 1-9 in commit 991faaa; issue #431 in #451). Some are still"
+            echo "LIVE (issue #429; the #431 depth-cap residual). Correctly reproducing"
+            echo "the counterexample is EXPECTED and does NOT fail this job - it is a"
+            echo "reproduction pointer; only an unexpected PASS (drift) fails. See"
+            echo "\`audit/TLAPlus-20260630.md\` and issues #429/#431."
             echo
           } >> "$GITHUB_STEP_SUMMARY"
           while IFS='|' read -r cfg tla finding; do
@@ -116,6 +120,9 @@ jobs:
           InstanceBridgeOutRace.cfg|InstanceBridgeOutRace.tla|Finding 6: InstanceBridgeOutStatus resurrection
           MessageStateRace.cfg|MessageStateRace.tla|Finding 7: MessageState resurrection
           Take1ChallengeRace.cfg|Take1ChallengeRace.tla|Finding 9: connector_a has no margin check
+          VerifierKickoffFailOpen.cfg|VerifierKickoffFailOpen.tla|Issue #429: verifier KickoffSent challenge is one-shot & fail-open (LIVE on dev - defense skipped on SPV lag, never retried)
+          KickoffScanCoverage.cfg|KickoffScanCoverage.tla|Issue #431: detect_kickoff one-per-operator coverage gap (fixed on dev by #451; kept as historical record)
+          KickoffScanCoverageResidual.cfg|KickoffScanCoverage.tla|Issue #431 residual: MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 scan-depth cap still leaves a deeper decoy chain uncovered
           BUGS
   fmt:
     name: Rustfmt
