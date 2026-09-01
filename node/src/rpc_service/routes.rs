@@ -1,5 +1,4 @@
 pub(crate) const ROOT: &str = "/";
-pub(crate) const METRICS: &str = "/metrics";
 
 pub(crate) mod v1 {
     pub const NODES_BASE: &str = "/v1/nodes";

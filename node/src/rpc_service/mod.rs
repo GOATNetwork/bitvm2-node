@@ -212,7 +212,6 @@ pub async fn serve_with_app_state(
                 ),
         )
         .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
-        .route(routes::METRICS, get(metrics_handler))
         .with_state(app_state);
 
     let listener = TcpListener::bind(&addr)
@@ -253,6 +252,76 @@ pub async fn serve(
 ) -> anyhow::Result<String> {
     let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, metrics_state).await?;
     serve_with_app_state(addr, app_state, cancellation_token).await
+}
+
+/// Validates the path the dedicated metrics listener will expose.
+///
+/// Rejects anything `axum` cannot register as a literal route, so a bad
+/// `--metrics-path` fails at startup instead of panicking inside the router.
+pub fn validate_metrics_path(path: &str) -> anyhow::Result<()> {
+    if !path.starts_with('/') {
+        anyhow::bail!("metrics path must start with '/', got {path:?}");
+    }
+    if path.contains(['?', '#', '{', '}', '*', ':']) {
+        anyhow::bail!(
+            "metrics path must not contain query, fragment or route parameter characters, got {path:?}"
+        );
+    }
+    if path.chars().any(char::is_whitespace) {
+        anyhow::bail!("metrics path must not contain whitespace, got {path:?}");
+    }
+    Ok(())
+}
+
+/// Binds the dedicated Prometheus metrics listener.
+///
+/// Binding happens before the node spawns its background tasks so a misconfigured
+/// or already used metrics port aborts startup with an explicit error.
+pub async fn bind_metrics_listener(addr: &str) -> anyhow::Result<TcpListener> {
+    TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("failed to bind metrics listener to {addr}"))
+}
+
+/// Serves the metrics-only router on an already bound listener.
+///
+/// The router exposes `metrics_path` and nothing else: no business or debug
+/// routes, no CORS and no request metrics middleware, so scrapes never show up
+/// in the HTTP request metrics they read.
+pub async fn serve_metrics(
+    listener: TcpListener,
+    metrics_path: String,
+    app_state: Arc<AppState>,
+    cancellation_token: CancellationToken,
+) -> anyhow::Result<String> {
+    validate_metrics_path(&metrics_path)?;
+    let router =
+        Router::new().route(metrics_path.as_str(), get(metrics_handler)).with_state(app_state);
+
+    let listening_addr =
+        listener.local_addr().context("failed to determine metrics listener address")?;
+    tracing::info!(
+        event = "metrics_listening",
+        address = %listening_addr,
+        path = %metrics_path,
+        "metrics listener started"
+    );
+
+    tokio::select! {
+        result = axum::serve(listener, router) => {
+            match result {
+                Ok(_) => Ok("metrics server finished normally".to_string()),
+                Err(e) => {
+                    tracing::error!("metrics server error: {}", e);
+                    Err(anyhow::anyhow!("metrics server error: {e}"))
+                }
+            }
+        }
+        _ = cancellation_token.cancelled() => {
+            tracing::info!("metrics service received shutdown signal");
+            Ok("metrics_shutdown".to_string())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -382,50 +451,147 @@ mod tests {
         listener.local_addr().unwrap().to_string()
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn metrics_use_route_templates_and_exclude_scrapes()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let addr = available_addr();
+    async fn spawn_metrics_listener(
+        app_state: Arc<rpc_service::AppState>,
+        metrics_path: &str,
+        cancellation_token: CancellationToken,
+    ) -> anyhow::Result<(String, tokio::task::JoinHandle<anyhow::Result<String>>)> {
+        let listener = rpc_service::bind_metrics_listener("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?.to_string();
+        let metrics_path = metrics_path.to_string();
+        let handle = tokio::spawn(rpc_service::serve_metrics(
+            listener,
+            metrics_path,
+            app_state,
+            cancellation_token,
+        ));
+        Ok((addr, handle))
+    }
+
+    async fn mock_app_state() -> anyhow::Result<Arc<rpc_service::AppState>> {
         let local_db = create_local_db(&temp_sqlite_db_path()).await;
         let metrics_state = MetricsState::new(Arc::new(Mutex::new(Registry::default())));
-        let app_state = rpc_service::AppState::create_arc_mock_app_state(
+        rpc_service::AppState::create_arc_mock_app_state(
             local_db,
             Actor::Verifier,
             generate_local_key().public().to_peer_id().to_string(),
             metrics_state,
         )
-        .await?;
+        .await
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn metrics_are_served_only_by_the_dedicated_listener()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let addr = available_addr();
+        let app_state = mock_app_state().await?;
         let cancellation_token = CancellationToken::new();
-        let server_token = cancellation_token.clone();
-        let server =
-            tokio::spawn(rpc_service::serve_with_app_state(addr.clone(), app_state, server_token));
+        let server = tokio::spawn(rpc_service::serve_with_app_state(
+            addr.clone(),
+            app_state.clone(),
+            cancellation_token.clone(),
+        ));
+        let (metrics_addr, metrics_server) =
+            spawn_metrics_listener(app_state, "/metrics", cancellation_token.clone()).await?;
         sleep(Duration::from_millis(100)).await;
 
         let client = Client::new();
         client.get(format!("http://{addr}/")).send().await?.error_for_status()?;
         let unmatched = client.get(format!("http://{addr}/missing")).send().await?;
         assert_eq!(unmatched.status().as_u16(), 404);
-        let first_scrape =
-            client.get(format!("http://{addr}/metrics")).send().await?.text().await?;
+
+        // The business listener no longer exposes metrics at all.
+        let business_metrics = client.get(format!("http://{addr}/metrics")).send().await?;
+        assert_eq!(business_metrics.status().as_u16(), 404);
+
+        // The metrics listener exposes nothing but the metrics path.
+        for path in ["/", "/v1/nodes", "/v1/debug/status"] {
+            let response = client.get(format!("http://{metrics_addr}{path}")).send().await?;
+            assert_eq!(
+                response.status().as_u16(),
+                404,
+                "unexpected route on metrics listener: {path}"
+            );
+        }
+
+        let first = client.get(format!("http://{metrics_addr}/metrics")).send().await?;
+        assert_eq!(first.status().as_u16(), 200);
+        assert_eq!(
+            first.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "application/openmetrics-text;charset=utf-8;version=1.0.0"
+        );
+        let first_scrape = first.text().await?;
         let second_scrape =
-            client.get(format!("http://{addr}/metrics")).send().await?.text().await?;
+            client.get(format!("http://{metrics_addr}/metrics")).send().await?.text().await?;
 
         assert!(
             first_scrape
                 .contains("http_requests_total{method=\"GET\",route=\"/\",status=\"200\"} 1")
         );
+        // `/missing` and the rejected `/metrics` request on the business listener.
         assert!(
             first_scrape.contains(
-                "http_requests_total{method=\"GET\",route=\"unmatched\",status=\"404\"} 1"
+                "http_requests_total{method=\"GET\",route=\"unmatched\",status=\"404\"} 2"
             )
         );
         assert!(first_scrape.contains("http_requests_in_flight 0"));
+        // Requests served by the metrics listener are not counted at all.
         assert!(!first_scrape.contains("route=\"/metrics\""));
         assert_eq!(first_scrape, second_scrape);
 
         cancellation_token.cancel();
         server.await??;
+        assert_eq!(metrics_server.await??, "metrics_shutdown");
         Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn metrics_listener_honors_custom_path() -> Result<(), Box<dyn std::error::Error>> {
+        let app_state = mock_app_state().await?;
+        let cancellation_token = CancellationToken::new();
+        let (metrics_addr, metrics_server) =
+            spawn_metrics_listener(app_state, "/internal/metrics", cancellation_token.clone())
+                .await?;
+        sleep(Duration::from_millis(100)).await;
+
+        let client = Client::new();
+        let response = client.get(format!("http://{metrics_addr}/internal/metrics")).send().await?;
+        assert_eq!(response.status().as_u16(), 200);
+        assert!(response.text().await?.contains("http_requests_in_flight"));
+        let default_path = client.get(format!("http://{metrics_addr}/metrics")).send().await?;
+        assert_eq!(default_path.status().as_u16(), 404);
+
+        cancellation_token.cancel();
+        metrics_server.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn metrics_listener_reports_bind_conflicts() -> Result<(), Box<dyn std::error::Error>> {
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let addr = occupied.local_addr()?.to_string();
+        let error = rpc_service::bind_metrics_listener(&addr).await.unwrap_err();
+        assert!(
+            error.to_string().contains(&format!("failed to bind metrics listener to {addr}")),
+            "unexpected error: {error}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn metrics_path_validation_rejects_unusable_paths() {
+        for path in ["/metrics", "/", "/internal/metrics"] {
+            assert!(
+                rpc_service::validate_metrics_path(path).is_ok(),
+                "rejected valid path: {path}"
+            );
+        }
+        for path in ["metrics", "", "/metrics?scrape=1", "/metrics#frag", "/{id}", "/met rics"] {
+            assert!(
+                rpc_service::validate_metrics_path(path).is_err(),
+                "accepted invalid path: {path}"
+            );
+        }
     }
 
     async fn init_nodes_data(local_db: &LocalDB, nodes: &[Node]) -> anyhow::Result<()> {
