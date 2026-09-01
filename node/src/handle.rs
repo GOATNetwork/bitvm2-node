@@ -7104,11 +7104,34 @@ async fn handle_sync_graph(
     Ok(())
 }
 
+/// A `NodeInfo` payload is entirely self-declared, so only accept it as the
+/// sender's own record: the registry is keyed by `peer_id`, and without this
+/// check any peer could overwrite any other node's row.
+fn accept_node_info(ctx: &HandlerContext<'_>, node_info: &NodeInfo, message_kind: &str) -> bool {
+    if !node_info_matches_sender(node_info, &ctx.from_peer_id) {
+        tracing::warn!(
+            "Ignore {message_kind} from {}: payload claims peer_id {}",
+            ctx.from_peer_id,
+            node_info.peer_id
+        );
+        return false;
+    }
+    if let Err(reason) = validate_node_info_payload(node_info) {
+        tracing::warn!("Ignore {message_kind} from {}: {reason}", ctx.from_peer_id);
+        return false;
+    }
+    true
+}
+
 async fn handle_request_node_info(
     ctx: &mut HandlerContext<'_>,
     node_info: &NodeInfo,
 ) -> Result<()> {
-    save_node_info(ctx.local_db, node_info).await?;
+    if accept_node_info(ctx, node_info, "RequestNodeInfo") {
+        save_node_info(ctx.local_db, node_info).await?;
+    }
+    // Answer regardless: the response only carries this node's own public info,
+    // and staying silent would break discovery for a misconfigured peer.
     let message_content = GOATMessageContent::ResponseNodeInfo(crate::env::get_local_node_info());
     send_to_peer(ctx.swarm, GOATMessage::new(Actor::All, message_content)).await?;
     Ok(())
@@ -7118,7 +7141,9 @@ async fn handle_response_node_info(
     ctx: &mut HandlerContext<'_>,
     node_info: &NodeInfo,
 ) -> Result<()> {
-    save_node_info(ctx.local_db, node_info).await?;
+    if accept_node_info(ctx, node_info, "ResponseNodeInfo") {
+        save_node_info(ctx.local_db, node_info).await?;
+    }
     Ok(())
 }
 
