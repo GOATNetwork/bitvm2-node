@@ -11,14 +11,18 @@ pub mod validation;
 
 use crate::env::{get_btc_url_from_env, get_goat_network, get_network, goat_config_from_env};
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
+use crate::rpc_service::auth::require_request_auth;
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    get_chain_proof_desc, get_debug_message_details, get_debug_status, get_graph,
-    get_graph_debug_messages, get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs,
-    get_instance, get_instance_debug_messages, get_instances, get_instances_overview, get_node,
+    get_chain_proof_desc, get_graph, get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs,
+    get_instance, get_instances, get_instances_overview, get_node,
     get_nodes, get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph, get_swap,
     get_swaps, get_unsigned_pegin_txn, instance_settings, pegout, send_challenge,
-    send_verifier_challenge,
+};
+#[cfg(feature = "rpc-debug-endpoints")]
+use crate::rpc_service::handler::{
+    get_debug_message_details, get_debug_status, get_graph_debug_messages,
+    get_instance_debug_messages, send_verifier_challenge,
 };
 use anyhow::Context;
 use axum::body::Body;
@@ -32,7 +36,8 @@ use bitvm_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::http_client::async_client::HttpAsyncClient;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
@@ -67,6 +72,7 @@ pub struct AppState {
     pub metrics_state: MetricsState,
     pub actor: Actor,
     pub peer_id: String,
+    rpc_auth_nonces: Mutex<HashMap<String, i64>>,
 }
 
 impl AppState {
@@ -87,6 +93,7 @@ impl AppState {
             actor,
             peer_id,
             http_client,
+            rpc_auth_nonces: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -111,6 +118,7 @@ impl AppState {
             actor,
             peer_id,
             http_client: HttpAsyncClient::new(None),
+            rpc_auth_nonces: Mutex::new(HashMap::new()),
         }))
     }
 }
@@ -135,13 +143,8 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-pub async fn serve_with_app_state(
-    addr: String,
-    app_state: Arc<AppState>,
-    cancellation_token: CancellationToken,
-) -> anyhow::Result<String> {
-    let node_span = tracing::Span::current();
-    let server = Router::new()
+pub(crate) fn build_business_router(app_state: Arc<AppState>) -> Router {
+    let public_routes = Router::new()
         .route(routes::ROOT, get(root))
         .route(routes::v1::NODES_BASE, get(get_nodes))
         .route(routes::v1::NODES_BY_ID, get(get_node))
@@ -159,17 +162,37 @@ pub async fn serve_with_app_state(
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::GRAPHS_NEIGHBOR_IDS, get(get_graph_neighbor_ids))
-        // TODO(auth): Restrict debug endpoints before exposing the RPC outside trusted operators.
+        .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
+        .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc));
+
+    #[cfg(feature = "rpc-debug-endpoints")]
+    let public_routes = public_routes
         .route(routes::v1::DEBUG_STATUS, get(get_debug_status))
         .route(routes::v1::DEBUG_GRAPH_MESSAGES, get(get_graph_debug_messages))
         .route(routes::v1::DEBUG_INSTANCE_MESSAGES, get(get_instance_debug_messages))
-        .route(routes::v1::DEBUG_MESSAGE_DETAILS, get(get_debug_message_details))
+        .route(routes::v1::DEBUG_MESSAGE_DETAILS, get(get_debug_message_details));
+
+    let signed_routes = Router::new()
         .route(routes::v1::GRAPHS_SEND_CHALLENGE, post(send_challenge))
-        .route(routes::v1::GRAPHS_SEND_VERIFIER_CHALLENGE, post(send_verifier_challenge))
-        .route(routes::v1::PEGOUT, post(pegout))
-        .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
-        .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc))
-        .layer(create_secure_cors_layer())
+        .route(routes::v1::PEGOUT, post(pegout));
+
+    #[cfg(feature = "rpc-debug-endpoints")]
+    let signed_routes = signed_routes
+        .route(routes::v1::GRAPHS_SEND_VERIFIER_CHALLENGE, post(send_verifier_challenge));
+
+    let signed_routes = signed_routes
+        .route_layer(middleware::from_fn_with_state(app_state.clone(), require_request_auth));
+
+    public_routes.merge(signed_routes).layer(create_secure_cors_layer()).with_state(app_state)
+}
+
+pub async fn serve_with_app_state(
+    addr: String,
+    app_state: Arc<AppState>,
+    cancellation_token: CancellationToken,
+) -> anyhow::Result<String> {
+    let node_span = tracing::Span::current();
+    let server = build_business_router(app_state.clone())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
@@ -211,8 +234,7 @@ pub async fn serve_with_app_state(
                     },
                 ),
         )
-        .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
-        .with_state(app_state);
+        .layer(middleware::from_fn_with_state(app_state, metrics_middleware));
 
     let listener = TcpListener::bind(&addr)
         .await
@@ -327,9 +349,13 @@ pub async fn serve_metrics(
 #[cfg(test)]
 mod tests {
     use crate::env::{
-        ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL, get_network,
+        ENV_BITVM_SECRET, ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS,
+        ENV_PROOF_SEVER_URL, get_network,
     };
     use crate::metrics_service::MetricsState;
+    use crate::rpc_service::auth::{
+        AUTH_NONCE_HEADER, AUTH_SIGNATURE_HEADER, AUTH_TIMESTAMP_HEADER, sign_request_auth,
+    };
     use crate::rpc_service::bitvm::{
         BRIDGE_IN_AMOUNTS, GraphGetResponse, GraphListResponse, InstanceGetResponse,
         InstanceListResponse, InstanceOverviewResponse, InstanceSettingResponse,
@@ -345,7 +371,7 @@ mod tests {
     use http::Method;
     use prometheus_client::registry::Registry;
     use reqwest::Client;
-    use secp256k1::Secp256k1;
+    use secp256k1::{Keypair, SECP256K1, Secp256k1};
     use serde_json::Value;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -478,6 +504,109 @@ mod tests {
             metrics_state,
         )
         .await
+    }
+
+    fn set_test_auth_key() -> Keypair {
+        let keypair = Keypair::from_seckey_slice(SECP256K1, &[0x42; 32]).unwrap();
+        unsafe {
+            std::env::set_var(ENV_BITVM_SECRET, hex::encode(keypair.secret_key().secret_bytes()))
+        };
+        keypair
+    }
+
+    async fn spawn_business_listener(
+        cancellation_token: CancellationToken,
+    ) -> anyhow::Result<(String, tokio::task::JoinHandle<()>)> {
+        let app_state = mock_app_state().await?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?.to_string();
+        let server = rpc_service::build_business_router(app_state);
+        let handle = tokio::spawn(async move {
+            let _ = tokio::select! {
+                result = axum::serve(listener, server) => result,
+                _ = cancellation_token.cancelled() => Ok(()),
+            };
+        });
+        Ok((addr, handle))
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn signed_request_nonce_is_rejected_after_first_use()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let keypair = set_test_auth_key();
+        let cancellation_token = CancellationToken::new();
+        let (addr, server) = spawn_business_listener(cancellation_token.clone()).await?;
+        let graph_id = Uuid::new_v4();
+        let request_target = format!("/v1/graphs/{graph_id}/send-challenge");
+        let url = format!("http://{addr}{request_target}");
+        let (timestamp, nonce, signature) =
+            sign_request_auth(&keypair, &Method::POST, &request_target, &[]);
+        let client = Client::new();
+
+        let first = client
+            .post(&url)
+            .header(AUTH_TIMESTAMP_HEADER, &timestamp)
+            .header(AUTH_NONCE_HEADER, &nonce)
+            .header(AUTH_SIGNATURE_HEADER, &signature)
+            .send()
+            .await?;
+        assert_eq!(first.status().as_u16(), 500);
+
+        let replay = client
+            .post(&url)
+            .header(AUTH_TIMESTAMP_HEADER, &timestamp)
+            .header(AUTH_NONCE_HEADER, &nonce)
+            .header(AUTH_SIGNATURE_HEADER, &signature)
+            .send()
+            .await?;
+        assert_eq!(replay.status().as_u16(), 409);
+        let replay_body: Value = replay.json().await?;
+        assert_eq!(replay_body["error"], "AUTH_REPLAY");
+
+        cancellation_token.cancel();
+        server.await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn debug_routes_follow_rpc_debug_endpoints_feature()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cancellation_token = CancellationToken::new();
+        let (addr, server) = spawn_business_listener(cancellation_token.clone()).await?;
+        let client = Client::new();
+        let id = Uuid::new_v4();
+
+        let status = client.get(format!("http://{addr}/v1/debug/status")).send().await?;
+        let graph_messages =
+            client.get(format!("http://{addr}/v1/debug/graphs/{id}/messages")).send().await?;
+        let instance_messages =
+            client.get(format!("http://{addr}/v1/debug/instances/{id}/messages")).send().await?;
+        let message_details =
+            client.get(format!("http://{addr}/v1/debug/messages/missing")).send().await?;
+        let verifier_challenge = client
+            .post(format!("http://{addr}/v1/graphs/{id}/send-verifier-challenge"))
+            .send()
+            .await?;
+
+        if cfg!(feature = "rpc-debug-endpoints") {
+            assert_eq!(status.status().as_u16(), 200);
+            assert_eq!(graph_messages.status().as_u16(), 200);
+            assert_eq!(instance_messages.status().as_u16(), 200);
+            assert_eq!(message_details.status().as_u16(), 404);
+            let message_body: Value = message_details.json().await?;
+            assert_eq!(message_body["error"], "DEBUG_MESSAGE_NOT_FOUND");
+            assert_eq!(verifier_challenge.status().as_u16(), 401);
+        } else {
+            assert_eq!(status.status().as_u16(), 404);
+            assert_eq!(graph_messages.status().as_u16(), 404);
+            assert_eq!(instance_messages.status().as_u16(), 404);
+            assert_eq!(message_details.status().as_u16(), 404);
+            assert_eq!(verifier_challenge.status().as_u16(), 404);
+        }
+
+        cancellation_token.cancel();
+        server.await?;
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]

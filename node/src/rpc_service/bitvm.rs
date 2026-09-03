@@ -51,6 +51,7 @@ pub struct SendChallengeResponse {
     pub challenge_txid: String,
 }
 
+#[cfg(feature = "rpc-debug-endpoints")]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SendVerifierChallengeResponse {
     pub challenge_assert_txid: String,

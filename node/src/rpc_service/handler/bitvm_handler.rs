@@ -1,9 +1,9 @@
 use crate::env::{
     GraphBtcTxName, get_goat_gateway_contract_from_env, get_node_goat_address, get_node_pubkey,
 };
+#[cfg(feature = "rpc-debug-endpoints")]
 use crate::handle::broadcast_verifier_challenge_assert_tx;
 use crate::rpc_service::AppState;
-use crate::rpc_service::auth::verify_request_auth;
 use crate::rpc_service::bitvm::*;
 use crate::rpc_service::node::ALIVE_TIME_JUDGE_THRESHOLD;
 use crate::rpc_service::response::{
@@ -21,7 +21,7 @@ use bitcoin::consensus::encode::serialize_hex;
 use bitvm_lib::types::BitvmGcGraph;
 use client::goat_chain::{PeginStatus, WithdrawStatus};
 use goat::transactions::pre_signed::PreSignedTransaction;
-use http::{HeaderMap, StatusCode};
+use http::StatusCode;
 use std::collections::HashSet;
 use std::default::Default;
 use std::str::FromStr;
@@ -1213,12 +1213,9 @@ pub async fn get_unsigned_pegin_txn(
 /// - `500 Internal Server Error`: Graph not found or broadcast failed
 #[axum::debug_handler]
 pub async fn send_challenge(
-    headers: HeaderMap,
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<SendChallengeResponse> {
-    // TODO(auth): Replace shared node-key authentication with caller-scoped authorization.
-    verify_request_auth(&headers)?;
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
     let mut storage_process =
@@ -1266,14 +1263,12 @@ pub async fn send_challenge(
 ///
 /// This is a test endpoint. Unlike the normal AssertSent verifier flow, it does
 /// not skip ChallengeAssert when the operator assert proof is valid.
+#[cfg(feature = "rpc-debug-endpoints")]
 #[axum::debug_handler]
 pub async fn send_verifier_challenge(
-    headers: HeaderMap,
     Path(graph_id): Path<String>,
     State(app_state): State<Arc<AppState>>,
 ) -> ApiResult<SendVerifierChallengeResponse> {
-    // TODO(auth): Replace shared node-key authentication with caller-scoped authorization.
-    verify_request_auth(&headers)?;
     let graph_id_uuid = InputValidator::validate_uuid(&graph_id, "graph_id")?;
 
     let mut storage_process =
@@ -1385,12 +1380,9 @@ fn sats_to_token_amount(amount_sats: u64, token_decimals: u8) -> U256 {
 /// - `500 Internal Server Error`: No eligible graph, L2 status invalid, or initWithdraw failed
 #[axum::debug_handler]
 pub async fn pegout(
-    headers: HeaderMap,
     State(app_state): State<Arc<AppState>>,
     Json(payload): Json<PegoutRequest>,
 ) -> ApiResult<PegoutResponse> {
-    // TODO(auth): Replace shared node-key authentication with caller-scoped authorization.
-    verify_request_auth(&headers)?;
     let operator_pubkey = get_node_pubkey().api_error("PEGOUT_ERROR")?.to_string();
     let operator_goat_addr = get_node_goat_address()
         .ok_or_else(|| {
