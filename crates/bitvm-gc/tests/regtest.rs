@@ -554,7 +554,6 @@ fn committee_pre_sign_graph(graph: &mut BitvmGcGraph, keys: &TestKeys) -> Result
 }
 
 fn committee_sign_pegin(graph: &BitvmGcGraph, keys: &TestKeys) -> Result<Transaction> {
-    let instance_id = graph.parameters.instance_parameters.instance_id;
     let mut pub_nonces = Vec::with_capacity(keys.committee.len());
     let mut sec_nonces = Vec::with_capacity(keys.committee.len());
     for keypair in &keys.committee {

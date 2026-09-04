@@ -1218,7 +1218,6 @@ impl<'a> StorageProcessor<'a> {
         );
         let mut query = sqlx::query(&sql)
             .bind(instance.instance_id)
-            .bind(instance.is_bridge_in)
             .bind(&instance.network)
             .bind(&instance.from_addr)
             .bind(&instance.to_addr)
@@ -1239,10 +1238,7 @@ impl<'a> StorageProcessor<'a> {
             .bind(instance.btc_height)
             .bind(&instance.parameters)
             .bind(instance.status_updated_at)
-            .bind(&instance.escrow_hash)
-            .bind(instance.bridge_out_lock_time)
             .bind(&instance.post_pegin_txhash)
-            .bind(&instance.bridge_out_amount)
             .bind(instance.created_at)
             .bind(instance.updated_at);
         for status in allowed_statuses {
@@ -4495,11 +4491,9 @@ mod tests {
     fn pegin_instance(instance_id: Uuid, status: &str) -> Instance {
         Instance {
             instance_id,
-            is_bridge_in: true,
             network: "testnet".to_string(),
             input_utxos: "[]".to_string(),
             status: status.to_string(),
-            bridge_out_amount: "0".to_string(),
             created_at: 100,
             updated_at: 100,
             ..Default::default()
@@ -4604,9 +4598,7 @@ mod tests {
         let mut s = db.acquire().await.unwrap();
         let instance_id = Uuid::new_v4();
 
-        let mut bridge_out = pegin_instance(instance_id, "Initialize");
-        bridge_out.is_bridge_in = false;
-        bridge_out.escrow_hash = Some("0xescrow".to_string());
+        let bridge_out = pegin_instance(instance_id, "Initialize");
         assert!(s.upsert_instance(&bridge_out).await.unwrap());
 
         let request = pegin_instance(instance_id, "UserInited");
@@ -4614,7 +4606,6 @@ mod tests {
             !s.upsert_pegin_request_instance(&request, &pegin_request_statuses()).await.unwrap()
         );
         let stored = s.find_instance(&instance_id).await.unwrap().unwrap();
-        assert!(!stored.is_bridge_in);
         assert_eq!(stored.status, "Initialize");
     }
 
