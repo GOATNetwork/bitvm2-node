@@ -176,8 +176,8 @@ pub struct NodesOverview {
     pub total: i64,
     pub online_operators: i64,
     pub offline_operators: i64,
-    pub online_challengers: i64,
-    pub offline_challengers: i64,
+    pub online_verifiers: i64,
+    pub offline_verifiers: i64,
     pub online_committees: i64,
     pub offline_committees: i64,
     pub online_watchtowers: i64,
@@ -199,8 +199,8 @@ pub enum InstanceBridgeInStatus {
     // committee won't answer if userRequest is invalid(e.g. insufficient fee)
     CommitteesAnswered,        // enough committee responsed & window expired
     UserBroadcastPeginPrepare, // user pegin prepare
-    Presigned,                 // all committee signed PeginConfirm
-    PresignedFailed,           // includes operator and Committee presigns
+    Presigned,                 // enough graphs completed committee pre-signing
+    PresignedFailed,           // required graph pre-signing did not finish in time
     RelayerL1Broadcasted,      // PeginConfirm broadcast by relayer
     RelayerL2Minted,           // success
     RelayerL2MintedFailed,
@@ -300,6 +300,26 @@ pub enum GraphStatus {
     Disproving,
 }
 
+/// The evidence that authorizes a graph status transition.
+///
+/// Graph definitions, finalized Goat events, and chain reconciliation have
+/// different authority. Keeping the source explicit prevents a generic
+/// database update from accidentally becoming a state-transition bypass.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum GraphStatusSource {
+    Definition,
+    GoatEvent,
+    ChainReconcile,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum GraphStatusTransitionOutcome {
+    Applied,
+    AlreadyCurrent,
+    Rejected { current: GraphStatus },
+    NotFound,
+}
+
 impl GraphStatus {
     pub fn get_closed_status() -> Vec<GraphStatus> {
         vec![
@@ -329,47 +349,103 @@ impl GraphStatus {
     pub fn is_obsoleted(&self) -> bool {
         self.eq(&GraphStatus::Obsoleted)
     }
-    pub fn get_previous_status(&self) -> Option<GraphStatus> {
-        match self {
-            GraphStatus::OperatorPresigned => None,
-            GraphStatus::CommitteePresigned => Some(GraphStatus::OperatorPresigned),
-            GraphStatus::OperatorDataPushed => Some(GraphStatus::CommitteePresigned),
-            GraphStatus::PreKickoff => Some(GraphStatus::OperatorDataPushed),
-            GraphStatus::Skipped => Some(GraphStatus::OperatorDataPushed),
-            GraphStatus::Obsoleted => Some(GraphStatus::OperatorDataPushed),
-            GraphStatus::OperatorKickOff => Some(GraphStatus::PreKickoff),
-            GraphStatus::OperatorTake1 => Some(GraphStatus::OperatorKickOff),
-            GraphStatus::Challenge => Some(GraphStatus::OperatorKickOff),
-            GraphStatus::Disprove => Some(GraphStatus::Challenge),
-            GraphStatus::OperatorTake2 => Some(GraphStatus::Challenge),
-            // frontend use only
-            GraphStatus::Created => None,
-            GraphStatus::Presigned => Some(GraphStatus::Created),
-            GraphStatus::L2Recorded => Some(GraphStatus::Presigned),
-            GraphStatus::OperatorKickOffing => Some(GraphStatus::L2Recorded),
-            GraphStatus::Challenging => Some(GraphStatus::OperatorKickOffing),
-            GraphStatus::Disproving => Some(GraphStatus::Challenging),
-        }
+
+    /// Whether this is a backend protocol state rather than a frontend-only
+    /// display alias.
+    pub fn is_protocol_status(self) -> bool {
+        matches!(
+            self,
+            Self::OperatorPresigned
+                | Self::CommitteePresigned
+                | Self::OperatorDataPushed
+                | Self::PreKickoff
+                | Self::OperatorKickOff
+                | Self::Challenge
+                | Self::Disprove
+                | Self::Obsoleted
+                | Self::Skipped
+                | Self::OperatorTake1
+                | Self::OperatorTake2
+        )
     }
-    pub fn is_before(&self, other: &GraphStatus) -> bool {
-        let mut current = *other;
-        while let Some(prev) = current.get_previous_status() {
-            if &prev == self {
-                return true;
-            }
-            current = prev;
+
+    /// States from which `self` may be reached with the supplied evidence.
+    ///
+    /// These sets intentionally contain transitive predecessors. A chain scan
+    /// can observe several confirmed transactions in one pass, so requiring a
+    /// locally persisted intermediate state would make recovery after restart
+    /// impossible. Closed states are deliberately absent from all sets.
+    pub fn allowed_transition_from(self, source: GraphStatusSource) -> &'static [GraphStatus] {
+        use GraphStatus::*;
+
+        const EARLY: &[GraphStatus] = &[OperatorPresigned, CommitteePresigned];
+        const EARLY_OR_OBSOLETED: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, Obsoleted];
+        const PRE_KICKOFF: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, Obsoleted];
+        const KICKOFF: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, PreKickoff, Obsoleted];
+        const CHALLENGE: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            Obsoleted,
+            OperatorKickOff,
+        ];
+        const TAKE1: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            Obsoleted,
+            OperatorKickOff,
+        ];
+        const TAKE2_OR_DISPROVE: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            Obsoleted,
+            OperatorKickOff,
+            Challenge,
+        ];
+        const SKIPPED: &[GraphStatus] =
+            &[OperatorPresigned, CommitteePresigned, OperatorDataPushed, PreKickoff, Obsoleted];
+        const OBSOLETED: &[GraphStatus] = &[
+            OperatorPresigned,
+            CommitteePresigned,
+            OperatorDataPushed,
+            PreKickoff,
+            OperatorKickOff,
+            Challenge,
+        ];
+
+        match source {
+            GraphStatusSource::Definition => match self {
+                CommitteePresigned => &[OperatorPresigned],
+                _ => &[],
+            },
+            GraphStatusSource::GoatEvent => match self {
+                OperatorDataPushed => EARLY,
+                OperatorTake1 => TAKE1,
+                OperatorTake2 | Disprove => TAKE2_OR_DISPROVE,
+                _ => &[],
+            },
+            GraphStatusSource::ChainReconcile => match self {
+                CommitteePresigned => &[OperatorPresigned],
+                OperatorDataPushed => EARLY_OR_OBSOLETED,
+                Obsoleted => OBSOLETED,
+                PreKickoff => PRE_KICKOFF,
+                OperatorKickOff => KICKOFF,
+                Challenge => CHALLENGE,
+                OperatorTake1 => TAKE1,
+                OperatorTake2 | Disprove => TAKE2_OR_DISPROVE,
+                Skipped => SKIPPED,
+                OperatorPresigned | Created | Presigned | L2Recorded | OperatorKickOffing
+                | Challenging | Disproving => &[],
+            },
         }
-        false
-    }
-    pub fn is_after(&self, other: &GraphStatus) -> bool {
-        let mut current = *self;
-        while let Some(prev) = current.get_previous_status() {
-            if &prev == other {
-                return true;
-            }
-            current = prev;
-        }
-        false
     }
 }
 
@@ -386,6 +462,9 @@ pub struct Graph {
     pub status: String,     // GraphStatus
     pub sub_status: String, // GraphStatus
     pub operator_pubkey: String,
+    /// Canonical hash of the immutable graph parameters. This binds the
+    /// runtime projection to exactly one transaction-graph definition.
+    pub definition_hash: String,
     pub next_prekickoff: Option<SerializableTxid>,
     pub cur_prekickoff_txid: Option<SerializableTxid>,
     pub force_skip_kickoff_txid: Option<SerializableTxid>,
@@ -396,19 +475,19 @@ pub struct Graph {
     pub take1_txid: Option<SerializableTxid>,
     pub challenge_txid: Option<SerializableTxid>,
     pub take2_txid: Option<SerializableTxid>,
-    pub disprove_txid: Option<SerializableTxid>,
     pub watchtower_challenge_init_txid: Option<SerializableTxid>,
+    pub operator_assert_txid: Option<SerializableTxid>,
+    #[sqlx(json)]
+    pub verifier_assert_txids: Vec<SerializableTxid>,
+    #[sqlx(json)]
+    pub disprove_txids: Vec<SerializableTxid>,
     #[sqlx(json)]
     pub watchtower_challenge_timeout_txids: Vec<SerializableTxid>,
     #[sqlx(json)]
-    pub nack_txids: Vec<SerializableTxid>,
-    pub blockhash_commit_timeout_txid: Option<SerializableTxid>,
-    pub assert_init_txid: Option<SerializableTxid>,
-    #[sqlx(json)]
-    pub assert_commit_timeout_txids: Vec<SerializableTxid>,
+    pub operator_challenge_nack_txids: Vec<SerializableTxid>,
+    pub operator_commit_timeout_txid: Option<SerializableTxid>,
     pub init_withdraw_tx_hash: Option<String>,
     pub bridge_out_start_at: i64,
-    pub zkm_version: String,
     pub status_updated_at: i64,
     pub proceed_withdraw_height: i64,
     pub created_at: i64,
@@ -448,6 +527,97 @@ pub struct Message {
     pub message_version: i64,
     pub weight: i64,
     pub lock_time_until: i64,
+    pub created_at: i64,
+}
+
+/// A durable copy of a message received from the P2P network.
+///
+/// Unlike `Message`, which is used for locally generated compensation work,
+/// this row retains the original sender and is consumed before dispatching the
+/// external message. Processed content is cleared, while failed content is
+/// retained for manual requeue and later TTL cleanup.
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct P2pInboxMessage {
+    pub message_id: String,
+    pub business_id: Option<Uuid>,
+    pub actor: String,
+    pub from_peer: String,
+    pub msg_type: String,
+    pub content: Vec<u8>,
+    pub content_size: i64,
+    pub state: String,
+    pub attempt_count: i64,
+    pub next_retry_at: i64,
+    pub lease_until: i64,
+    pub lease_token: String,
+    pub last_error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct P2pOutboxMessage {
+    pub message_id: String,
+    pub msg_type: String,
+    pub content: Vec<u8>,
+    pub state: String,
+    pub attempt_count: i64,
+    pub next_retry_at: i64,
+    pub lease_until: i64,
+    pub last_error: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, FromRow)]
+pub struct MessageDebugOverview {
+    pub message_id: String,
+    pub actor: String,
+    pub msg_type: String,
+    pub state: String,
+    pub lock_time_until: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub reason_count: i64,
+    pub last_reason_code: Option<String>,
+    pub last_reason_detail: Option<String>,
+    pub last_reason_seen_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, FromRow)]
+pub struct MessageDebugReason {
+    pub reason_code: String,
+    pub reason_detail: String,
+    pub first_seen_at: i64,
+    pub last_seen_at: i64,
+    pub occurrences: i64,
+}
+
+#[derive(Clone, Debug, FromRow, PartialEq, Eq)]
+pub struct MetricsStateCount {
+    pub category: String,
+    pub state: String,
+    pub count: i64,
+    pub oldest_created_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+}
+
+/// Aggregate, local-only values used for alerting. These values intentionally
+/// contain no business identifiers so they can be exported as Prometheus gauges.
+#[derive(Clone, FromRow, Debug, Default)]
+pub struct NodeAlertMetricsSnapshot {
+    pub pegin_oldest_active_status_updated_at: Option<i64>,
+    pub pegin_oldest_committee_wait_status_updated_at: Option<i64>,
+    pub pegout_oldest_active_status_updated_at: Option<i64>,
+    pub operator_available_pegbtc: Option<String>,
+}
+
+/// Aggregate event watcher progress used to expose a bounded health state.
+#[derive(Clone, FromRow, Debug, Default)]
+pub struct EventWatchMetricsSnapshot {
+    pub lag_blocks: i64,
+    pub watcher_count: i64,
+    pub syncing_count: i64,
+    pub failed_count: i64,
 }
 
 #[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
@@ -468,12 +638,26 @@ pub struct PeginGraphProcessData {
     pub created_at: i64,
 }
 
+#[derive(Clone, FromRow, Debug, Serialize, Deserialize, Default)]
+pub struct PendingGraphInit {
+    pub instance_id: Uuid,
+    pub operator_pubkey: String,
+    pub graph_id: Uuid,
+    pub updated_at: i64,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Display, EnumString)]
 pub enum MessageType {
     None,
     PeginRequest,
     CreateGraph,
     ConfirmInstance,
+    InitGraph,
+    GenCircuits,
+    CutCircuits,
+    SolderingProof,
+    VerifierGraphParamsEndorsement,
     NonceGeneration,
     CommitteePresign,
     GraphFinalize,
@@ -488,13 +672,13 @@ pub enum MessageType {
     WatchtowerChallengeInitSent,
     WatchtowerChallengeSent,
     WatchtowerChallengeTimeout,
-    OperatorAckTimeout,
-    OperatorCommitBlockHashReady,
-    OperatorCommitBlockHashSent,
-    OperatorCommitBlockHashTimeout,
-    AssertInitReady,
-    AssertCommitTimeout,
-    DisproveReady,
+    NackReady,
+    OperatorCommitPubinReady,
+    OperatorCommitPubinTimeout,
+    AssertReady,
+    AssertSent,
+    ChallengeAssertSent,
+    WronglyChallengeTimeout,
     DisproveSent,
     Take1Ready,
     Take1Sent,

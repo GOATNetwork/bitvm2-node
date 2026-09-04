@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bitcoin::{Block, BlockHash, ScriptBuf, Transaction, TxOut};
+use bitcoin::{Block, BlockHash, Transaction, Txid};
 use commit_chain::CircuitCommit;
 use header_chain::CircuitBlockHeader;
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,10 @@ use state_chain::CircuitStateBlock;
 use std::fs;
 use strum::{Display, EnumString};
 use thiserror::Error;
-use zkm_sdk::{ProverClient, ZKMProofWithPublicValues};
+use zkm_sdk::{HashableKey, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofWithPublicValues};
 use zkm_sdk::{ZKMProvingKey, ZKMVerifyingKey};
+
+pub mod api_auth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProofRequest {
@@ -63,10 +65,10 @@ pub enum ProofRequest {
 
         operator_committed_blockhash: BlockHash,
 
-        watchtower_challenge_txns: Vec<Transaction>,
-        watchtower_challenge_txn_prev_outs: Vec<TxOut>,
-        watchtower_challenge_txn_pubkeys: Vec<bitcoin::secp256k1::PublicKey>,
-        watchtower_challenge_txn_scripts: Vec<ScriptBuf>,
+        graph_watchtower_xonly_public_keys: Vec<[u8; 32]>,
+        watchtower_challenge_init_txid: Txid,
+        watchtower_challenge_init_txn: Option<Transaction>,
+        watchtower_challenge_witnesses: Vec<(u16, u32, Block, Transaction)>,
     },
 }
 
@@ -101,6 +103,12 @@ pub trait ProofBuilder {
     fn pk(&self) -> &ZKMProvingKey;
     fn vk(&self) -> &ZKMVerifyingKey;
 
+    /// Returns the Program ID derived from the builder's verifying key.
+    fn program_id(&self) -> Result<verifier::ProgramId> {
+        verifier::program_id(self.vk().bytes32().as_bytes(), ZKM_CIRCUIT_VERSION)
+            .map_err(anyhow::Error::msg)
+    }
+
     fn build_proof(
         &self,
         ctx: &ProofRequest,
@@ -130,7 +138,7 @@ pub struct OnDemandTask {
     pub state_chain_input_proof: String,
 
     pub watchtower_challenge_init_txid: Option<String>,
-    pub watchtower_challenge_txids: Vec<String>,
+    pub watchtower_challenge_txids: Vec<Option<String>>,
     pub included_watchtowers: Vec<bool>,
     pub watchtower_public_keys: Vec<String>,
     pub graph_id: Option<String>,
@@ -208,9 +216,11 @@ pub struct ProofDescResponse {
 pub struct OperatorProofRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
     pub operator_committed_blockhash: String,
     pub execution_layer_block_number: i64,
-    pub watchtower_challenge_txids: Vec<String>,
+    pub watchtower_challenge_txids: Vec<Option<String>>,
     pub included_watchtowers: Vec<bool>,
     pub watchtower_challenge_init_txid: String,
     pub watchtower_challenge_pubkeys: Vec<String>,
@@ -221,6 +231,7 @@ pub struct ProofData {
     pub proof: Vec<u8>,
     pub vk: String,
     pub public_inputs: Vec<u8>,
+    pub zkm_version: String,
 }
 
 impl ProofData {
@@ -238,6 +249,10 @@ impl ProofData {
                 proof_data.vk =
                     String::from_utf8(fs::read(format!("{path}.vk_hash.bin")).unwrap_or_default())
                         .unwrap_or_default();
+                proof_data.zkm_version = String::from_utf8(
+                    fs::read(format!("{path}.zkm_version.bin")).unwrap_or_default(),
+                )
+                .unwrap_or_default();
             }
         }
         proof_data
@@ -254,6 +269,8 @@ pub struct OperatorProofResponse {
 pub struct WatchtowerProofRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
     pub public_key: String,
     pub challenge_init_txid: String,
     pub execution_layer_block_number: i64,
@@ -269,6 +286,8 @@ pub struct WatchtowerProofResponse {
 pub struct OperatorProofTimeoutUpdateRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OperatorProofTimeoutUpdateResponse {
@@ -282,6 +301,8 @@ pub struct OperatorProofTimeoutUpdateResponse {
 pub struct WatchtowerProofTimeoutUpdateRequest {
     pub instance_id: String,
     pub graph_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway_address: Option<String>,
     pub public_key: String,
 }
 

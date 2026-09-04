@@ -11,12 +11,12 @@
 //! - --rpc-url: node API base URL (default: http://localhost:8080)
 //!
 //! Example:
-//! - cargo run -p bitvm2-noded --bin pegout -- \
+//! - cargo run -p bitvm-noded --bin pegout -- \
 //!   --rpc-url http://localhost:8080 once --graph-id <uuid>
 
 use anyhow::{Context, Result, bail};
-use bitvm2_noded::env::get_bitvm_key;
-use bitvm2_noded::rpc_service::auth::{
+use bitvm_noded::env::get_bitvm_key;
+use bitvm_noded::rpc_service::auth::{
     AUTH_SIGNATURE_HEADER, AUTH_TIMESTAMP_HEADER, sign_request_auth,
 };
 use clap::{Parser, Subcommand};
@@ -51,6 +51,10 @@ enum Commands {
         /// Dry run (validate but do not call Gateway.initWithdraw)
         #[arg(long, default_value_t = false)]
         dry_run: bool,
+
+        /// Skip candidates blocked by another withdrawal, including stale predecessors
+        #[arg(long, default_value_t = false)]
+        skip_locked: bool,
     },
     /// Initiate pegouts repeatedly until target amount reached
     Batch {
@@ -65,6 +69,10 @@ enum Commands {
         /// Dry run (validate but do not call Gateway.initWithdraw)
         #[arg(long, default_value_t = false)]
         dry_run: bool,
+
+        /// Skip candidates blocked by another withdrawal, including stale predecessors
+        #[arg(long, default_value_t = false)]
+        skip_locked: bool,
 
         /// Poll interval seconds for checking graph readiness between pegouts
         #[arg(long, default_value_t = 300)]
@@ -81,6 +89,7 @@ struct PegoutApiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     graph_id: Option<String>,
     dry_run: bool,
+    skip_locked: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,9 +123,11 @@ async fn call_pegout(
     base_url: &str,
     graph_id: Option<Uuid>,
     dry_run: bool,
+    skip_locked: bool,
 ) -> Result<PegoutApiResponse> {
     let url = format!("{}/v1/graphs/pegout", base_url.trim_end_matches('/'));
-    let body = PegoutApiRequest { graph_id: graph_id.map(|id| id.to_string()), dry_run };
+    let body =
+        PegoutApiRequest { graph_id: graph_id.map(|id| id.to_string()), dry_run, skip_locked };
 
     let keypair = get_bitvm_key().context("failed to load BITVM_SECRET")?;
     let (timestamp, signature) = sign_request_auth(&keypair);
@@ -202,19 +213,21 @@ async fn wait_for_graph_ready(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     let client = reqwest::Client::new();
     let base_url = &args.rpc_url;
 
     match args.command {
-        Commands::Once { graph_id, dry_run } => {
-            let resp = call_pegout(&client, base_url, graph_id, dry_run).await?;
+        Commands::Once { graph_id, dry_run, skip_locked } => {
+            let resp = call_pegout(&client, base_url, graph_id, dry_run, skip_locked).await?;
             print_pegout_result(&resp);
         }
         Commands::Batch {
             max_total_amount_sats,
             max_count,
             dry_run,
+            skip_locked,
             poll_interval_secs,
             max_wait_secs,
         } => {
@@ -235,31 +248,43 @@ async fn main() -> Result<()> {
                     break;
                 }
 
-                match call_pegout(&client, base_url, None, dry_run).await {
-                    Ok(resp) => {
-                        let amount = resp.amount as u64;
-                        if total_sent + amount > max_total_amount_sats {
+                match call_pegout(&client, base_url, None, true, skip_locked).await {
+                    Ok(preflight) => {
+                        let amount = u64::try_from(preflight.amount)
+                            .context("pegout API returned a negative amount")?;
+                        if total_sent.saturating_add(amount) > max_total_amount_sats {
                             eprintln!(
                                 "batch stop: next amount {amount} would exceed target {max_total_amount_sats}",
                             );
                             break;
                         }
 
+                        if dry_run {
+                            print_pegout_result(&preflight);
+                            eprintln!(
+                                "batch dry-run stops after the next eligible graph because dry-run does not advance graph state"
+                            );
+                            break;
+                        }
+
+                        let graph_id = Uuid::parse_str(&preflight.graph_id)
+                            .context("pegout API returned an invalid graph id")?;
+                        let resp =
+                            call_pegout(&client, base_url, Some(graph_id), false, skip_locked)
+                                .await?;
                         print_pegout_result(&resp);
                         total_sent = total_sent.saturating_add(amount);
                         count = count.saturating_add(1);
                         eprintln!("batch progress: count {count}, total {total_sent} sats");
 
-                        if !dry_run {
-                            wait_for_graph_ready(
-                                &client,
-                                base_url,
-                                &resp.graph_id,
-                                poll_interval_secs,
-                                max_wait_secs,
-                            )
-                            .await?;
-                        }
+                        wait_for_graph_ready(
+                            &client,
+                            base_url,
+                            &resp.graph_id,
+                            poll_interval_secs,
+                            max_wait_secs,
+                        )
+                        .await?;
                     }
                     Err(e) => {
                         eprintln!("batch stop: {e}");

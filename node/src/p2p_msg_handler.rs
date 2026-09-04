@@ -1,21 +1,26 @@
 use crate::action::{
-    GOATMessage, GOATMessageContent, handle_self_p2p_msg, recv_and_dispatch, send_to_peer,
+    GOATMessage, GOATMessageContent, handle_inbound_p2p_message, handle_self_p2p_msg, send_to_peer,
 };
 use crate::env::get_local_node_info;
+use crate::metrics_service::MetricsState;
 use crate::middleware::swarm::{BitvmSwarmWrapper, P2pMessageHandler, TickMessageType};
 use crate::utils::detect_heart_beat;
-use bitvm2_lib::actors::Actor;
+use bitvm_lib::actors::Actor;
+use bitvm_lib::babe_adapter::BabeBundleBuilder;
 use client::http_client::async_client::HttpAsyncClient;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use libp2p::PeerId;
 use libp2p::gossipsub::MessageId;
+use std::sync::Arc;
 use store::localdb::LocalDB;
 
 pub struct BitvmNodeProcessor {
     pub local_db: LocalDB,
-    pub btc_client: BTCClient,
-    pub goat_client: GOATClient,
+    pub btc_client: Arc<BTCClient>,
+    pub goat_client: Arc<GOATClient>,
     pub http_client: HttpAsyncClient,
+    pub soldering_builder: Option<Arc<BabeBundleBuilder>>,
+    pub metrics_state: MetricsState,
 }
 impl P2pMessageHandler for BitvmNodeProcessor {
     async fn recv_and_dispatch(
@@ -26,16 +31,18 @@ impl P2pMessageHandler for BitvmNodeProcessor {
         id: MessageId,
         message: &[u8],
     ) -> anyhow::Result<()> {
-        recv_and_dispatch(
+        handle_inbound_p2p_message(
             swarm,
             &self.local_db,
             &self.btc_client,
             &self.goat_client,
             &self.http_client,
+            &self.soldering_builder,
             actor,
             from_peer_id,
             id,
             message,
+            &self.metrics_state,
         )
         .await
     }
@@ -71,10 +78,12 @@ impl P2pMessageHandler for BitvmNodeProcessor {
                     &self.btc_client,
                     &self.goat_client,
                     &self.http_client,
+                    &self.soldering_builder,
                     actor,
                     peer_id,
                     GOATMessage::default_message_id(),
                     &tick_data,
+                    &self.metrics_state,
                 )
                 .await
             }
@@ -105,12 +114,12 @@ mod tests {
     use crate::action::{GOATMessage, GOATMessageContent, NodeInfo, send_to_peer};
     use crate::env::get_rpc_support_actors;
     use crate::middleware::swarm::{
-        Bitvm2SwarmConfig, BitvmNetworkManager, BitvmSwarmWrapper, P2pMessageHandler,
+        BitvmNetworkManager, BitvmSwarmConfig, BitvmSwarmWrapper, P2pMessageHandler,
         TickMessageType,
     };
     use crate::utils::{generate_local_key, save_node_info};
     use base64::Engine;
-    use bitvm2_lib::actors::Actor;
+    use bitvm_lib::actors::Actor;
     use libp2p::PeerId;
     use libp2p::gossipsub::MessageId;
     use prometheus_client::registry::Registry;
@@ -147,13 +156,13 @@ mod tests {
             local_key
         };
         let mut bitvm_network_manager = BitvmNetworkManager::new(
-            Bitvm2SwarmConfig {
+            BitvmSwarmConfig {
                 local_key,
                 p2p_port,
                 bootnodes,
                 topic_names: vec![
                     Actor::Committee.to_string(),
-                    Actor::Challenger.to_string(),
+                    Actor::Verifier.to_string(),
                     Actor::Operator.to_string(),
                     Actor::Watchtower.to_string(),
                     Actor::All.to_string(),
@@ -163,7 +172,7 @@ mod tests {
             },
             &mut metric_registry,
         )
-        .expect("create bitvm2 swarm");
+        .expect("create bitvm swarm");
 
         let local_db = if let Some(local_db) = local_db {
             local_db

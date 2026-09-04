@@ -11,6 +11,12 @@ async fn main() {
     zkm_sdk::utils::setup_logger();
     tracing::info!("args: {:?}", args);
 
+    let builder = CommitChainProofBuilder::new();
+    if args.print_program_id {
+        println!("{}", hex::encode(builder.program_id().unwrap()));
+        return;
+    }
+
     let commits = fetch_commit_chain(
         &args.esplora_url,
         &args.commit_info,
@@ -19,8 +25,6 @@ async fn main() {
     )
     .await
     .unwrap();
-    let builder = CommitChainProofBuilder::new();
-
     let ctx = ProofRequest::CommitChainProofRequest {
         init_input: args.init_input,
         input_proof: args.input_proof.clone(),

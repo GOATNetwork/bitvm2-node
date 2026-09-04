@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 use bitcoin::blockdata::{opcodes::all::*, script::Builder};
 use bitcoin::{Amount, CompressedPublicKey, Network, ScriptBuf, Transaction, TxOut, Witness};
@@ -8,13 +8,31 @@ use bitcoin::secp256k1::{
 };
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 
-pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
+/// Validates a Publisher key set before it is committed into a P2WSH multisig script.
+pub fn validate_publisher_set(public_keys: &[PublicKey], threshold: usize) -> Result<(), String> {
     let total = public_keys.len();
     println!("Multi sig: {threshold} of {total}");
-    assert!(
-        threshold <= total,
-        "Threshold must be less than or equal to total number of public keys"
-    );
+
+    if public_keys.is_empty() || total > 20 || threshold == 0 || threshold > total {
+        return Err(format!(
+            "Invalid Publisher set: public key count {total}, threshold {threshold}; expected 1 to 20 public keys and a threshold between 1 and the public key count",
+        ));
+    }
+
+    let mut unique_keys = HashSet::with_capacity(total);
+    for public_key in public_keys {
+        if !unique_keys.insert(public_key.serialize()) {
+            return Err(format!("Duplicate Publisher public key: {public_key}"));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn create_sequencer_update_script(public_keys: &[PublicKey], threshold: usize) -> ScriptBuf {
+    validate_publisher_set(public_keys, threshold)
+        .unwrap_or_else(|error| panic!("Invalid Publisher set: {error}"));
+
     let mut redeem_script = Builder::new().push_int(threshold as i64);
     for pk in public_keys {
         redeem_script = redeem_script.push_slice(pk.serialize());
@@ -86,6 +104,11 @@ pub fn verify_p2wsh_multisig_witness(
     let secp = Secp256k1::verification_only();
     let txin = &tx.input[input_index];
     let witness: &Witness = &txin.witness;
+    let expected_script_pubkey = ScriptBuf::new_p2wsh(&redeem_script.wscript_hash());
+
+    if prevout.script_pubkey != expected_script_pubkey {
+        return Err("prevout script_pubkey does not match redeem_script".into());
+    }
 
     // Expect witness: [<empty>, sig1, sig2, ..., redeem_script_bytes]
     if witness.len() < 2 {
@@ -214,8 +237,7 @@ mod tests {
         let prevout = TxOut { value: prev_value, script_pubkey };
 
         // Fake OutPoint
-        let prev_outpoint =
-            OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32].into()), vout: 0 };
+        let prev_outpoint = OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32]), vout: 0 };
 
         // === Step 4: construct spending tx ===
         let mut tx = Transaction {
@@ -231,7 +253,7 @@ mod tests {
                 value: Amount::from_sat(99_000),
                 script_pubkey: {
                     let btc_pk0 = bitcoin::PublicKey::from(pubkeys[0]);
-                    Address::p2pkh(&btc_pk0, Network::Testnet).script_pubkey()
+                    Address::p2pkh(btc_pk0, Network::Testnet).script_pubkey()
                 },
             }],
         };
@@ -249,16 +271,55 @@ mod tests {
         finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
 
         // === Step 7: verify ===
-        let ok = verify_p2wsh_multisig_witness(
-            &tx,
-            0,
-            &prevout,
-            &redeem_script,
-            &pubkeys,
-            threshold as usize,
-        )
-        .unwrap();
+        let ok =
+            verify_p2wsh_multisig_witness(&tx, 0, &prevout, &redeem_script, &pubkeys, threshold)
+                .unwrap();
 
         assert!(ok, "2-of-3 multisig witness should verify");
+    }
+
+    #[test]
+    fn test_verify_p2wsh_multisig_witness_rejects_prevout_script_mismatch() {
+        let keys = create_dummy_publisher_keys(3, bitcoin::Network::Regtest);
+        let pubkeys: Vec<PublicKey> = keys.iter().map(|(_, pk)| *pk).collect();
+        let threshold = 2;
+        let redeem_script = create_sequencer_update_script(&pubkeys, threshold);
+        let prev_value = Amount::from_sat(100_000);
+        let prevout = TxOut {
+            value: prev_value,
+            script_pubkey: ScriptBuf::new_p2wsh(&ScriptBuf::new().wscript_hash()),
+        };
+        let prev_outpoint = OutPoint { txid: bitcoin::Txid::from_byte_array([0u8; 32]), vout: 0 };
+
+        let mut tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: prev_outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(99_000),
+                script_pubkey: {
+                    let btc_pk0 = bitcoin::PublicKey::from(pubkeys[0]);
+                    Address::p2pkh(btc_pk0, Network::Testnet).script_pubkey()
+                },
+            }],
+        };
+
+        let (sig1, _) =
+            sign_partial(&mut tx, &keys[0].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
+        let (sig2, _) =
+            sign_partial(&mut tx, &keys[1].0, &redeem_script, prev_value, EcdsaSighashType::All)
+                .unwrap();
+        finalize(&mut tx, vec![sig1, sig2], &redeem_script).unwrap();
+
+        assert!(
+            verify_p2wsh_multisig_witness(&tx, 0, &prevout, &redeem_script, &pubkeys, threshold,)
+                .is_err()
+        );
     }
 }

@@ -12,13 +12,13 @@
 //! - --graph-id: target graph UUID
 //!
 //! Example:
-//! - cargo run -p bitvm2-noded --bin challenge -- \
+//! - cargo run -p bitvm-noded --bin challenge -- \
 //!   --rpc-url http://localhost:8080 \
 //!   --graph-id <uuid>
 
 use anyhow::{Context, Result};
-use bitvm2_noded::env::get_bitvm_key;
-use bitvm2_noded::rpc_service::auth::{
+use bitvm_noded::env::get_bitvm_key;
+use bitvm_noded::rpc_service::auth::{
     AUTH_SIGNATURE_HEADER, AUTH_TIMESTAMP_HEADER, sign_request_auth,
 };
 use clap::Parser;
@@ -48,6 +48,7 @@ struct SendChallengeResponse {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     let url = format!(
         "{}/v1/graphs/{}/send-challenge",

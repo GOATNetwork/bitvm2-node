@@ -83,61 +83,60 @@ impl MMRHost {
             current_index /= 2;
             current_level += 1;
         }
-        let (subroot_idx, internal_idx) = self.get_helpers_from_index(index);
-        let mmr_proof = MMRInclusionProof::new(subroot_idx, internal_idx, proof);
+        let mmr_proof = MMRInclusionProof::new(index, proof);
         (self.nodes[0][index as usize], mmr_proof)
-    }
-
-    /// Given an index, returns the subroot index (which subtree the index is in), subtree size, and internal index (of the subtree that the index belongs to).
-    fn get_helpers_from_index(&self, index: u32) -> (usize, u32) {
-        let xor = (self.nodes[0].len() as u32) ^ index;
-        let xor_leading_digit = 31 - xor.leading_zeros() as usize;
-        let internal_idx = index & ((1 << xor_leading_digit) - 1);
-        let leading_zeros_size = 31 - (self.nodes[0].len() as u32).leading_zeros() as usize;
-        let mut subtree_idx = 0;
-        for i in xor_leading_digit + 1..=leading_zeros_size {
-            if self.nodes[0].len() & (1 << i) != 0 {
-                subtree_idx += 1;
-            }
-        }
-        (subtree_idx, internal_idx)
     }
 
     /// Verifies an inclusion proof against the current MMR root.
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        println!("NATIVE: inclusion_proof: {mmr_proof:?}");
-        println!("NATIVE: leaf: {leaf:?}");
-        let sub_root = mmr_proof.get_subroot(leaf);
-        println!("NATIVE: calculated_sub_root: {sub_root:?}");
+        let Some((subroot_idx, sub_root)) = mmr_proof.get_subroot(self.nodes[0].len() as u32, leaf)
+        else {
+            return false;
+        };
         let sub_roots = self.get_subroots();
-        println!("NATIVE: sub_roots: {sub_roots:?}");
-        sub_roots[mmr_proof.subroot_idx] == sub_root
+        sub_roots.get(subroot_idx) == Some(&sub_root)
     }
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct MMRInclusionProof {
-    pub subroot_idx: usize,
-    pub internal_idx: u32,
+    pub leaf_index: u32,
     pub inclusion_proof: Vec<[u8; 32]>,
 }
 
 impl MMRInclusionProof {
-    pub fn new(subroot_idx: usize, internal_idx: u32, inclusion_proof: Vec<[u8; 32]>) -> Self {
-        MMRInclusionProof { subroot_idx, internal_idx, inclusion_proof }
+    /// Creates an inclusion proof for the absolute MMR leaf index.
+    pub fn new(leaf_index: u32, inclusion_proof: Vec<[u8; 32]>) -> Self {
+        MMRInclusionProof { leaf_index, inclusion_proof }
     }
 
-    pub fn get_subroot(&self, leaf: [u8; 32]) -> [u8; 32] {
+    /// Derives the peak, internal index, and path length from the committed MMR size.
+    fn position(&self, mmr_size: u32) -> Option<(usize, u32, usize)> {
+        if mmr_size == 0 || self.leaf_index >= mmr_size {
+            return None;
+        }
+        let peak_level = 31 - (mmr_size ^ self.leaf_index).leading_zeros();
+        let internal_mask = (1u32 << peak_level).wrapping_sub(1);
+        let internal_index = self.leaf_index & internal_mask;
+        let subroot_idx = mmr_size.checked_shr(peak_level + 1).unwrap_or(0).count_ones() as usize;
+        Some((subroot_idx, internal_index, peak_level as usize))
+    }
+
+    /// Reconstructs the authenticated peak for `leaf` at this proof's leaf index.
+    pub fn get_subroot(&self, mmr_size: u32, leaf: [u8; 32]) -> Option<(usize, [u8; 32])> {
+        let (subroot_idx, internal_index, expected_path_len) = self.position(mmr_size)?;
+        if self.inclusion_proof.len() != expected_path_len {
+            return None;
+        }
         let mut current_hash = leaf;
-        for i in 0..self.inclusion_proof.len() {
-            let sibling = self.inclusion_proof[i];
-            if self.internal_idx & (1 << i) == 0 {
+        for (i, sibling) in self.inclusion_proof.iter().copied().enumerate() {
+            if internal_index & (1 << i) == 0 {
                 current_hash = hash_pair(current_hash, sibling);
             } else {
                 current_hash = hash_pair(sibling, current_hash);
             }
         }
-        current_hash
+        Some((subroot_idx, current_hash))
     }
 }
 
@@ -177,20 +176,10 @@ impl MMRGuest {
 
     /// Verifies an inclusion proof against the current MMR root
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
-        //println!("GUEST: mmr_proof: {mmr_proof:?}");
-        //println!("GUEST: leaf: {leaf:?}");
-        let mut current_hash = leaf;
-        for i in 0..mmr_proof.inclusion_proof.len() {
-            let sibling = mmr_proof.inclusion_proof[i];
-            if mmr_proof.internal_idx & (1 << i) == 0 {
-                current_hash = hash_pair(current_hash, sibling);
-            } else {
-                current_hash = hash_pair(sibling, current_hash);
-            }
-        }
-        //println!("GUEST: calculated sub_root: {current_hash:?}",);
-        //println!("GUEST: sub_roots: {:?}", self.subroots);
-        self.subroots[mmr_proof.subroot_idx] == current_hash
+        let Some((subroot_idx, subroot)) = mmr_proof.get_subroot(self.size, leaf) else {
+            return false;
+        };
+        self.subroots.get(subroot_idx) == Some(&subroot)
     }
 }
 
@@ -266,5 +255,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn proof_index_and_path_length_are_authenticated() {
+        let mut mmr = MMRHost::new();
+        for i in 0..3 {
+            mmr.append([i; 32]);
+        }
+        let (leaf, proof) = mmr.generate_proof(0);
+        assert!(mmr.verify_proof(leaf, &proof));
+
+        let mut wrong_index = proof.clone();
+        wrong_index.leaf_index = 1;
+        assert!(!mmr.verify_proof(leaf, &wrong_index));
+
+        let mut wrong_length = proof;
+        wrong_length.inclusion_proof.pop();
+        assert!(!mmr.verify_proof(leaf, &wrong_length));
     }
 }

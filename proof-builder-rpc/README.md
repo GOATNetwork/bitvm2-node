@@ -10,9 +10,47 @@ BITCOIN_NETWORK=testnet4 cargo build -r
 
 ## Deployment
 
-Initial parameters are read from `proof-builder.toml` (see [proof-builder.toml](./proof-builder.toml)). After that, they will be loaded from the database.
+Initial parameters are read from `proof-builder.toml` (see
+[proof-builder.toml.example](./proof-builder.toml.example)). After that, they will be loaded from
+the database.
 
 Field descriptions for the configuration are available in the circuits documentation: [circuits README](../circuits/README.md).
+
+The four Operator/Watchtower task endpoints require signed requests and live GOAT contract
+authorization. Configure the read-only GOAT connection before startup:
+
+```dotenv
+GOAT_NETWORK=test
+GOAT_CHAIN_URL=https://rpc.testnet3.goat.network
+GOAT_GATEWAY_CONTRACT_ADDRESS=<gateway-address-1>,<gateway-address-2>
+```
+
+Proof Builder accepts one or more comma-separated Gateway addresses. All configured Gateways use
+the same GOAT network and RPC. It discovers the CommitteeManagement contract through each Gateway
+and exits if any configured contract set cannot be initialized. Operator requests require graph
+ownership and a matching instance/graph relation. Operator registration and stake are enforced
+when graphs are admitted and are not rechecked for existing proof tasks.
+Watchtower requests require membership in the current global Watchtower registry and the request
+public key must match the authenticated signer. Contract authorization is queried for every
+request; failures return HTTP 503 rather than falling back to stale authorization data.
+
+Each authenticated request selects a configured deployment with the signed `gateway_address`
+field. For staged upgrades, the field may be omitted while Proof Builder has exactly one Gateway;
+it is required when multiple Gateways are configured. Nodes continue to use one
+`GOAT_GATEWAY_CONTRACT_ADDRESS` value and add it to every Operator/Watchtower proof request.
+
+Nodes sign requests with their existing `BITVM_SECRET`; no GOAT or Bitcoin private key is
+configured on the Proof Builder. Deploy signing-capable nodes before enabling the authenticated
+Proof Builder so that in-flight proof polling is not rejected.
+
+Authenticated requests carry `x-proof-auth-timestamp`, `x-proof-auth-nonce`,
+`x-proof-auth-public-key`, and `x-proof-auth-signature`. The signature binds the caller role,
+HTTP method, route, timestamp, nonce, and canonical JSON body. Rust callers should use
+`proof_builder::api_auth::sign_proof_builder_request`; each retry must generate a new nonce.
+
+To enable multiple Gateways without interrupting proof polling, first upgrade Proof Builder with a
+single Gateway, then upgrade all Nodes to send `gateway_address`, and finally configure the
+comma-separated Gateway list.
 
 ## Failure recovery
 
@@ -26,7 +64,7 @@ Long-running proof tasks (stored in the `long_running_task_proof` table) — suc
 GOAT_BLOCK_NUMBER=${THE_GOAT_BLOCK_NUMBER} bash -x scp.sh
 ```
 
-Example `scp.sh` used for Regtest integration tests:
+Example `scp.sh` used for Regtest integration tests, remember to set the `OPERATOR_VK_HASH` environment variable before running:
 
 ```bash
 #!/bin/bash

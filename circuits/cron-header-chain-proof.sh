@@ -12,15 +12,32 @@ batch=${2:-$_batch}
 
 function find_input_proof() {
   local start="$1"
-  local input_file
-  input_file=$(find $DATA -maxdepth 1 -type f -regex '.*[0-9]+-[0-9]+\.bin$' -printf '%f\n' |
-    awk -v sum="$start" -F '[-.]' '($1 + $2) == sum { print $0; exit }')
+  local input_file=""
+  local proof_path
+  local proof_file
+  local proof_start
+  local proof_batch
 
-  if [ ! $input_file ]; then
-    echo "Can not find the input proof"
-    exit -1
+  # Match proof files by filename because batch size may vary between runs.
+  shopt -s nullglob
+  for proof_path in "$DATA"/*.bin; do
+    proof_file="${proof_path##*/}"
+    if [[ "$proof_file" =~ ^([0-9]+)-([0-9]+)\.bin$ ]]; then
+      proof_start="${BASH_REMATCH[1]}"
+      proof_batch="${BASH_REMATCH[2]}"
+      if (( proof_start + proof_batch == start )); then
+        input_file="$proof_file"
+        break
+      fi
+    fi
+  done
+  shopt -u nullglob
+
+  if [ -z "$input_file" ]; then
+    echo "Can not find the input proof for start=$start in $DATA" >&2
+    exit 1
   fi
-  echo $input_file
+  echo "$input_file"
 }
 
 if [ $start -ne 0 ]; then

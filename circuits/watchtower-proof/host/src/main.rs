@@ -10,6 +10,12 @@ async fn main() {
     let args = Args::parse();
     // Setup the logger.
     zkm_sdk::utils::setup_logger();
+    let builder = WatchtowerProofBuilder::new();
+    if args.print_program_id {
+        println!("{}", hex::encode(builder.program_id().unwrap()));
+        return;
+    }
+
     let (block_pos, target_block, latest_sequencer_commit_tx) = fetch_target_block(
         &args.esplora_url,
         &args.latest_sequencer_commit_txid,
@@ -17,8 +23,6 @@ async fn main() {
     )
     .await
     .unwrap();
-    let builder = WatchtowerProofBuilder::new();
-
     let ctx = ProofRequest::WatchtowerProofRequest {
         genesis_sequencer_commit_txid: args.genesis_sequencer_commit_txid.clone(),
         latest_sequencer_commit_txid: args.latest_sequencer_commit_txid.clone(),

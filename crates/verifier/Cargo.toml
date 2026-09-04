@@ -1,0 +1,14 @@
+[package]
+name = "verifier"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sha2 = { workspace = true }
+zkm-verifier = { workspace = true }
+
+[features]
+imm-wrap-vk = ["zkm-verifier/imm-wrap-vk"]
+
+[lints]
+workspace = true

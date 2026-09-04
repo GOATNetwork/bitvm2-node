@@ -11,11 +11,15 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use util::hex_parse;
+use zkm_sdk::HashableKey;
 
-#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
+use crate::api::metrics_service::{ApiMetricsState, OPERATOR_PROOF};
+
+#[tracing::instrument(level = "info", skip(local_db, metrics_state, cancellation_token))]
 pub(crate) fn spawn_operator_proof_task(
     args: operator_proof::Args,
     local_db: LocalDB,
+    metrics_state: ApiMetricsState,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -30,6 +34,7 @@ pub(crate) fn spawn_operator_proof_task(
         }
 
         let builder = OperatorProofBuilder::new();
+        info!("operator vk hash {:?}", builder.vk().bytes32());
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(interval)) => {
@@ -50,7 +55,12 @@ pub(crate) fn spawn_operator_proof_task(
                                 args.graph_id
                             );
                             args.watchtower_challenge_init_txid = next_task.watchtower_challenge_init_txid.unwrap().clone();
-                            args.watchtower_challenge_txids = next_task.watchtower_challenge_txids.join(",");
+                            args.watchtower_challenge_txids = next_task
+                                .watchtower_challenge_txids
+                                .iter()
+                                .map(|txid| txid.as_deref().unwrap_or(""))
+                                .collect::<Vec<_>>()
+                                .join(",");
                             args.watchtower_public_keys = next_task.watchtower_public_keys.join(",");
                             // LE array to string, e.g. [1, 1, 1, 0] => 7
                             args.included_watchtowers = le_bits_to_u256(&next_task.included_watchtowers).to_string();
@@ -74,10 +84,10 @@ pub(crate) fn spawn_operator_proof_task(
                         target_block_ss_commit,
                         operator_committed_blockhash,
                         operator_latest_sequencer_commit_txn,
-                        watchtower_challenge_txns,
-                        watchtower_challenge_txn_prev_outs,
-                        watchtower_challenge_txn_pubkeys,
-                        watchtower_challenge_txn_scripts,
+                        graph_watchtower_xonly_public_keys,
+                        watchtower_challenge_init_txid,
+                        watchtower_challenge_init_txn,
+                        watchtower_challenge_witnesses,
                     ) = match fetch_target_block_and_watchtower_tx(
                         &args.esplora_url,
                         &args.latest_sequencer_commit_txid,
@@ -113,10 +123,10 @@ pub(crate) fn spawn_operator_proof_task(
 
                         operator_committed_blockhash,
 
-                        watchtower_challenge_txns,
-                        watchtower_challenge_txn_prev_outs,
-                        watchtower_challenge_txn_pubkeys,
-                        watchtower_challenge_txn_scripts,
+                        graph_watchtower_xonly_public_keys,
+                        watchtower_challenge_init_txid,
+                        watchtower_challenge_init_txn,
+                        watchtower_challenge_witnesses,
                     };
                     let proving_start = tokio::time::Instant::now();
                     let (cycles, proving_time, public_value_hex, proof_size, proof_state, zkm_version) = match builder.build_proof(&ctx) {
@@ -139,7 +149,13 @@ pub(crate) fn spawn_operator_proof_task(
                     };
 
                     let proving_duration = proving_start.elapsed().as_secs_f32() * 1000.0;
-                    let affected = update_operator_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proof_state, proving_duration as i64, proving_time as i64, zkm_version).await?;
+                    let succeeded = matches!(proof_state, ProofState::Proven);
+                    let update_result = update_operator_task(&local_db, task_index, args.output.clone(), public_value_hex, proof_size as i64, cycles, proof_state, proving_duration as i64, proving_time as i64, zkm_version).await;
+                    let persisted =
+                        matches!(&update_result, Ok(affected) if *affected > 0);
+                    let outcome = if succeeded && persisted { "success" } else { "failed" };
+                    metrics_state.record_attempt(OPERATOR_PROOF, outcome, proving_start.elapsed());
+                    let affected = update_result?;
                     tracing::info!("update operator task: {args:?}, cycles: {cycles}, index: {}, affected row: {affected}", task_index);
                     args = ProofBuilderConfig::run_next(args, OperatorProofBuilder::name())?;
                 }

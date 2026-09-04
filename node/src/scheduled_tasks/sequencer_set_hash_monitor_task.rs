@@ -293,21 +293,17 @@ mod tests {
 
         sync_sequencer_set_hash_changes(&db, &rpc, 10).await.unwrap();
 
-        let mut s = db.acquire().await.unwrap();
         // Should have 2 hash change records: one at block 10 (init), one at block 13 (change)
+        let mut s = db.acquire().await.unwrap();
         let first = s
-            .find_first_sequencer_set_hash_change_by_cosmos_block_at_or_after(10)
+            .find_first_sequencer_set_hash_change_by_goat_block_at_or_before(1012)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(first.cosmos_block_height, 10);
         assert_eq!(first.validators_hash, hex::encode(make_hash(0xAA)));
 
-        let second = s
-            .find_first_sequencer_set_hash_change_by_cosmos_block_at_or_after(11)
-            .await
-            .unwrap()
-            .unwrap();
+        let second = s.find_latest_sequencer_set_hash_change().await.unwrap().unwrap();
         assert_eq!(second.cosmos_block_height, 13);
         assert_eq!(second.validators_hash, hex::encode(make_hash(0xBB)));
     }

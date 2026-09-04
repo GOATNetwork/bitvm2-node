@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# BitVM2 Node API Documentation Deployment Script
+# BitVM Node API Documentation Deployment Script
 # Deploy API documentation with Docker
 
 set -e
 
-echo "BitVM2 Documentation Deployment Script"
+echo "BitVM Documentation Deployment Script"
 echo ""
 
 # Configuration variables
 DOCS_SOURCE_DIR="docs/api"
-CONTAINER_NAME="${CONTAINER_NAME:-bitvm2-docs}"
+CONTAINER_NAME="${CONTAINER_NAME:-bitvm-docs}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 
 # Show usage
@@ -20,7 +20,7 @@ show_usage() {
     echo ""
     echo "Options:"
     echo "  -p, --port PORT          Container port [default: 8080]"
-    echo "  -n, --name NAME          Container name [default: bitvm2-docs]"
+    echo "  -n, --name NAME          Container name [default: bitvm-docs]"
     echo "  --help                   Show help information"
     echo ""
     echo "Environment Variables:"
@@ -108,7 +108,7 @@ EOF
     
     # Build Docker image
     echo "Building Docker image..."
-    docker build -f scripts/DocServer_Dockerfile -t bitvm2-docs:latest .
+    docker build -f scripts/DocServer_Dockerfile -t bitvm-docs:latest .
     
     if [ $? -ne 0 ]; then
         echo "Docker image build failed!"
@@ -123,7 +123,7 @@ EOF
         -p ${CONTAINER_PORT}:80 \
         --name ${CONTAINER_NAME} \
         --restart unless-stopped \
-        bitvm2-docs:latest
+        bitvm-docs:latest
     
     if [ $? -eq 0 ]; then
         echo ""

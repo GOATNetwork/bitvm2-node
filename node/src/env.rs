@@ -6,19 +6,21 @@ use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 use base64::Engine;
 use bitcoin::{Network, PublicKey, key::Keypair};
-use bitvm2_lib::actors::Actor;
-use bitvm2_lib::keys::NodeMasterKey;
+use bitvm_lib::actors::Actor;
+use bitvm_lib::keys::NodeMasterKey;
+use bitvm_lib::timelocks::{default_connector_z_timelock_blocks, estimated_block_interval_secs};
 use client::goat_chain::utils::{
     get_committee_management_contract, get_gateway_relay_contracts, is_validate_committee,
 };
 use client::goat_chain::{GoatInitConfig, GoatNetwork};
-use goat::constants::{CONNECTOR_Z_TIMELOCK, NUM_BLOCKS_PER_HOUR};
 use libp2p::PeerId;
 use reqwest::Url;
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::str::FromStr;
 use strum::{Display, EnumString};
 use tracing::{info, warn};
+use util::hex_parse;
 use zeroize::Zeroizing;
 
 pub const ENV_BTC_CHAIN_URL: &str = "BTC_CHAIN_URL";
@@ -32,11 +34,8 @@ pub const ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS: &str =
     "ENV_GOAT_SEQUENCER_SET_MULTI_SIG_VERIFIER_ADDRESS";
 pub const ENV_ENABLE_RELAYER: &str = "ENABLE_RELAYER";
 pub const ENV_ENABLE_UPDATE_SPV_CONTRACT: &str = "ENABLE_UPDATE_SPV_CONTRACT";
+pub const ENV_ENABLE_BABE_SETUP_STATE_CLEANUP: &str = "ENABLE_BABE_SETUP_STATE_CLEANUP";
 pub const ENV_BTC_BLOCK_CONFIRMS: &str = "BTC_BLOCK_CONFIRMS";
-pub const ENV_MARA_SLIPSTREAM_API_URL: &str = "MARA_SLIPSTREAM_API_URL";
-pub const DEFAULT_MARA_SLIPSTREAM_MAINNET_API_URL: &str = "https://slipstream.mara.com/api";
-pub const DEFAULT_MARA_SLIPSTREAM_TESTNET4_API_URL: &str = "https://teststream.mara.com/api";
-
 pub const ENV_GOAT_PRIVATE_KEY: &str = "GOAT_PRIVATE_KEY";
 
 pub const ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL: &str = "GOAT_GATEWAY_EVENT_THE_GRAPH_URL";
@@ -61,6 +60,7 @@ pub const ENV_PROOF_SEVER_URL: &str = "PROOF_SEVER_URL";
 pub const ENV_ACTOR: &str = "ACTOR";
 pub const ENV_IPFS_ENDPOINT: &str = "IPFS_ENDPOINT";
 pub const ENV_COMMITTEE_NUM: &str = "COMMITTEE_NUM";
+pub const ENV_MIN_REQUIRED_VERIFIER: &str = "MIN_REQUIRED_VERIFIER";
 pub const ENV_EXTERNAL_SOCKET_ADDR: &str = "EXTERNAL_SOCKET_ADDR";
 pub const COMMITTEE_INSTANCE_KEYS_DIR: &str = "cache/committee-instance-keys/";
 pub const SCRIPT_CACHE_FILE_NAME: &str = "cache/partial_script.bin";
@@ -70,14 +70,27 @@ pub const DUST_AMOUNT: u64 = goat::transactions::base::DUST_AMOUNT;
 pub const MAX_CUSTOM_INPUTS: usize = 100;
 
 pub const DEFAULT_CONFIRMATION_TARGET: u16 = 1;
+pub const DEFAULT_MIN_REQUIRED_VERIFIER: usize = 1;
 
 pub const ENV_BITCOIN_NETWORK: &str = "BITCOIN_NETWORK";
 pub const ENV_GOAT_NETWORK: &str = "GOAT_NETWORK";
 
 pub const ENV_WATCHTOWER_PROOF_WAIT_SECS: &str = "WATCHTOWER_PROOF_WAIT_SECS";
 pub const ENV_OPERATOR_PROOF_WAIT_SECS: &str = "OPERATOR_PROOF_WAIT_SECS";
+pub const ENV_OPERATOR_VK_HASH: &str = "OPERATOR_VK_HASH";
+pub const ENV_OPERATOR_ZKM_VERSION: &str = "OPERATOR_ZKM_VERSION";
 pub const DEFAULT_WATCHTOWER_PROOF_WAIT_SECS: usize = 60;
 pub const DEFAULT_OPERATOR_PROOF_WAIT_SECS: usize = 60;
+pub const ENV_FGC_GATES_PATH: &str = "FGC_GATES_PATH";
+pub const ENV_FGC_OUT_INDICES_PATH: &str = "FGC_OUT_INDICES_PATH";
+pub const ENV_SGC_GATES_PATH: &str = "SGC_GATES_PATH";
+pub const ENV_SGC_OUT_INDICES_PATH: &str = "SGC_OUT_INDICES_PATH";
+pub const ENV_FGC_COMPACT_GATES_PATH: &str = "FGC_COMPACT_GATES_PATH";
+pub const ENV_FGC_COMPACT_OUT_INDICES_PATH: &str = "FGC_COMPACT_OUT_INDICES_PATH";
+pub const ENV_SGC_COMPACT_GATES_PATH: &str = "SGC_COMPACT_GATES_PATH";
+pub const ENV_SGC_COMPACT_OUT_INDICES_PATH: &str = "SGC_COMPACT_OUT_INDICES_PATH";
+pub const ENV_BABE_SETUP_STATE_DIR: &str = "BABE_SETUP_STATE_DIR";
+pub const ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH: &str = "SOLDERING_PROOF_PAYLOAD_STORE_PATH";
 
 pub const ENV_ALWAYS_CHALLENGE: &str = "ALWAYS_CHALLENGE";
 pub const ENV_GENESIS_SEQUENCER_COMMIT_TXID: &str = "GENESIS_SEQUENCER_COMMIT_TXID";
@@ -116,10 +129,6 @@ pub const MESSAGE_SAVE_INTERVAL_SECOND: i64 = 3600 * 24 * 3;
 
 pub const GRAPH_OPERATOR_DATA_UPLOAD_TIME_EXPIRED: i64 = 3600 * 48;
 
-// update me later
-pub const INSTANCE_PRESIGNED_TIME_EXPIRED: i64 =
-    (3600 / NUM_BLOCKS_PER_HOUR as i64) * CONNECTOR_Z_TIMELOCK as i64 * 2 / 3;
-
 pub const SYNC_GRAPH_INTERVAL: u64 = 3;
 pub const SYNC_GRAPH_MAX_WAIT_SECS: u64 = 30;
 
@@ -135,6 +144,10 @@ pub const ENV_INSTANCE_MAINTENANCE_BATCH_SIZE: &str = "INSTANCE_MAINTENANCE_BATC
 pub const DEFAULT_INSTANCE_MAINTENANCE_BATCH_SIZE: u32 = 50;
 pub const ENV_MAINTENANCE_RUN_TIMEOUT_SECS: &str = "MAINTENANCE_RUN_TIMEOUT_SECS";
 pub const DEFAULT_MAINTENANCE_RUN_TIMEOUT_SECS: u64 = 60;
+pub const ENV_P2P_INBOX_BATCH_SIZE: &str = "P2P_INBOX_BATCH_SIZE";
+pub const DEFAULT_P2P_INBOX_BATCH_SIZE: i64 = 16;
+pub const ENV_P2P_OUTBOX_BATCH_SIZE: &str = "P2P_OUTBOX_BATCH_SIZE";
+pub const DEFAULT_P2P_OUTBOX_BATCH_SIZE: i64 = 16;
 pub const ENV_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: &str = "ENABLE_COMMITTEE_INSTANCE_KEY_DELETE";
 pub const DEFAULT_ENABLE_COMMITTEE_INSTANCE_KEY_DELETE: bool = false;
 pub const ENV_COMMITTEE_INSTANCE_KEY_DELETE_TIMELOCK_BLOCKS: &str =
@@ -155,6 +168,12 @@ pub fn get_network() -> Network {
             Network::Testnet4
         }
     }
+}
+
+pub fn get_instance_presigned_time_expired_secs() -> i64 {
+    let network = get_network();
+    let connector_z_blocks = default_connector_z_timelock_blocks(network) as i64;
+    estimated_block_interval_secs(network) * connector_z_blocks * 2 / 3
 }
 
 pub fn get_goat_network() -> GoatNetwork {
@@ -193,8 +212,8 @@ pub fn get_node_pubkey() -> anyhow::Result<PublicKey> {
 }
 
 pub fn get_actor() -> Actor {
-    Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Challenger".to_string()).as_str())
-        .expect("Expect one of Committee, Challenger, Operator or Relayer")
+    Actor::from_str(std::env::var(ENV_ACTOR).unwrap_or("Verifier".to_string()).as_str())
+        .expect("Expect one of Committee, Verifier, Operator or Relayer")
 }
 
 pub fn get_peer_key() -> String {
@@ -221,6 +240,13 @@ pub fn is_relayer() -> bool {
 pub fn is_enable_update_spv_contract() -> bool {
     match std::env::var(ENV_ENABLE_UPDATE_SPV_CONTRACT) {
         Ok(value) => value.to_lowercase() == "true",
+        Err(_) => false,
+    }
+}
+
+pub fn is_enable_babe_setup_state_cleanup() -> bool {
+    match std::env::var(ENV_ENABLE_BABE_SETUP_STATE_CLEANUP) {
+        Ok(value) => value.eq_ignore_ascii_case("true"),
         Err(_) => false,
     }
 }
@@ -260,10 +286,10 @@ pub async fn check_node_info() {
         panic!("Relayer and Committee must set goat secret key");
     }
     let node_info = get_local_node_info();
-    if [Actor::Operator.to_string(), Actor::Challenger.to_string()].contains(&node_info.actor)
+    if [Actor::Operator.to_string(), Actor::Verifier.to_string()].contains(&node_info.actor)
         && node_info.goat_addr.is_empty()
     {
-        panic!("Operator and Challenger must set goat address or goat secret key");
+        panic!("Operator and Verifier must set goat address or goat secret key");
     }
     if Actor::Committee.to_string() == node_info.actor
         || Actor::Operator.to_string() == node_info.actor
@@ -333,42 +359,39 @@ pub fn get_committee_member_num() -> usize {
     COMMITTEE_MEMBER_NUMBER
 }
 
-#[derive(Clone, Display, EnumString)]
+#[derive(Clone, Copy, Display, EnumString)]
 pub enum GraphBtcTxName {
-    #[strum(serialize = "watchtower-challenge-init.hex")]
-    WatchtowerChallengeInit,
-    #[strum(serialize = "pre-kickoff.hex")]
-    PreKickoff,
-    #[strum(serialize = "assert-init.hex")]
-    AssertInit,
-    #[strum(serialize = "challenge.hex")]
-    Challenge,
-    #[strum(serialize = "disprove.hex")]
-    Disprove,
-    #[strum(serialize = "kickoff.hex")]
-    Kickoff,
+    #[strum(serialize = "cur-pre-kickoff.hex")]
+    CurPreKickoff,
+    #[strum(serialize = "next-pre-kickoff.hex")]
+    NextPreKickoff,
+    #[strum(serialize = "force-skip-kickoff.hex")]
+    ForceSkipKickoff,
+    #[strum(serialize = "quick-challenge.hex")]
+    QuickChallenge,
+    #[strum(serialize = "challenge-incomplete-kickoff.hex")]
+    ChallengeIncompleteKickoff,
     #[strum(serialize = "pegin.hex")]
     Pegin,
+    #[strum(serialize = "kickoff.hex")]
+    Kickoff,
     #[strum(serialize = "take1.hex")]
     Take1,
+    #[strum(serialize = "challenge.hex")]
+    Challenge,
+    #[strum(serialize = "watchtower-challenge-init.hex")]
+    WatchtowerChallengeInit,
+    #[strum(serialize = "operator-assert.hex")]
+    OperatorAssert,
+    #[strum(serialize = "verifier-assert.hex")]
+    VerifierAssert,
+    #[strum(serialize = "disprove.hex")]
+    Disprove,
     #[strum(serialize = "take2.hex")]
     Take2,
 }
 pub fn get_btc_url_from_env() -> Option<String> {
     std::env::var(ENV_BTC_CHAIN_URL).ok()
-}
-
-pub fn get_mara_slipstream_api_base_url(network: Network) -> String {
-    if let Ok(url) = std::env::var(ENV_MARA_SLIPSTREAM_API_URL)
-        && !url.trim().is_empty()
-    {
-        return url;
-    }
-
-    match network {
-        Network::Bitcoin => DEFAULT_MARA_SLIPSTREAM_MAINNET_API_URL.to_string(),
-        _ => DEFAULT_MARA_SLIPSTREAM_TESTNET4_API_URL.to_string(),
-    }
 }
 
 pub fn get_sequencer_set_monitor_start_cosmos_block_from_env() -> Option<u64> {
@@ -430,13 +453,12 @@ pub fn get_goat_swap_event_filter_gap_from_env() -> i64 {
 
 pub fn get_goat_gateway_the_graph_urls_from_env() -> String {
     std::env::var(ENV_GOAT_GATEWAY_EVENT_THE_GRAPH_URL)
-        .unwrap_or("https://graph.goat.network/subgraphs/name/bitvm2_gateway_dev".to_string())
+        .unwrap_or("https://graph.goat.network/subgraphs/name/bitvm_gateway_dev".to_string())
 }
 
 pub fn get_goat_swap_the_graph_urls_from_env() -> String {
-    std::env::var(ENV_GOAT_SWAP_EVENT_THE_GRAPH_URL).unwrap_or(
-        "https://graph.goat.network/subgraphs/name/bitvm2_escrow_manager_dev".to_string(),
-    )
+    std::env::var(ENV_GOAT_SWAP_EVENT_THE_GRAPH_URL)
+        .unwrap_or("https://graph.goat.network/subgraphs/name/bitvm_escrow_manager_dev".to_string())
 }
 
 pub async fn goat_config_from_env() -> GoatInitConfig {
@@ -503,7 +525,7 @@ pub async fn goat_config_from_env() -> GoatInitConfig {
     }
 }
 
-const DEFAULT_PROTO_NAME_BASE: &str = "bitvm2";
+const DEFAULT_PROTO_NAME_BASE: &str = "bitvm";
 pub fn get_proto_base() -> String {
     match std::env::var("PROTO_NAME") {
         Ok(proto_name) => {
@@ -557,6 +579,79 @@ pub fn get_operator_proof_wait_secs() -> usize {
         .unwrap_or(DEFAULT_OPERATOR_PROOF_WAIT_SECS)
 }
 
+pub fn get_min_required_verifier() -> anyhow::Result<usize> {
+    match std::env::var(ENV_MIN_REQUIRED_VERIFIER) {
+        Err(std::env::VarError::NotPresent) => Ok(DEFAULT_MIN_REQUIRED_VERIFIER),
+        Err(error) => Err(anyhow::anyhow!("failed to read {ENV_MIN_REQUIRED_VERIFIER}: {error}")),
+        Ok(value) => value.parse::<usize>().ok().filter(|value| *value > 0).ok_or_else(|| {
+            anyhow::anyhow!("{ENV_MIN_REQUIRED_VERIFIER} must be a positive integer, got {value:?}")
+        }),
+    }
+}
+
+pub fn get_soldering_proof_payload_store_path() -> anyhow::Result<String> {
+    let value = std::env::var(ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH)
+        .map_err(|_| anyhow::anyhow!("{ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH} needs to be set"))?;
+    let value = value.trim();
+    if value.is_empty() {
+        anyhow::bail!("{ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH} cannot be empty");
+    }
+    Ok(value.to_string())
+}
+
+pub fn validate_soldering_proof_payload_store_config(actor: &Actor) -> anyhow::Result<()> {
+    if matches!(actor, Actor::Verifier | Actor::Operator | Actor::All) {
+        get_soldering_proof_payload_store_path()
+            .map(|_| ())
+            .map_err(|err| anyhow::anyhow!("{err}; required for actor {actor}"))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn get_operator_vk_hash() -> anyhow::Result<[u8; 32]> {
+    let value = std::env::var(ENV_OPERATOR_VK_HASH)
+        .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_VK_HASH} needs to be set"))?;
+    hex_parse::<32>(&value).map_err(|err| anyhow::anyhow!("invalid {ENV_OPERATOR_VK_HASH}: {err}"))
+}
+
+pub fn get_operator_zkm_version() -> anyhow::Result<String> {
+    std::env::var(ENV_OPERATOR_ZKM_VERSION)
+        .map_err(|_| anyhow::anyhow!("{ENV_OPERATOR_ZKM_VERSION} needs to be set"))
+}
+
+pub struct BabeGcAssetPaths {
+    pub fgc_gates: PathBuf,
+    pub fgc_out_indices: PathBuf,
+    pub sgc_gates: PathBuf,
+    pub sgc_out_indices: PathBuf,
+    pub fgc_compact_gates: PathBuf,
+    pub fgc_compact_out_indices: PathBuf,
+    pub sgc_compact_gates: PathBuf,
+    pub sgc_compact_out_indices: PathBuf,
+}
+
+pub fn get_babe_gc_asset_paths() -> anyhow::Result<BabeGcAssetPaths> {
+    fn read_path(name: &str) -> anyhow::Result<PathBuf> {
+        let path =
+            PathBuf::from(std::env::var(name).map_err(|_| anyhow::anyhow!("{name} is missing"))?);
+        if !path.is_file() {
+            anyhow::bail!("{name} does not point to a readable file: {}", path.display());
+        }
+        Ok(path)
+    }
+    Ok(BabeGcAssetPaths {
+        fgc_gates: read_path(ENV_FGC_GATES_PATH)?,
+        fgc_out_indices: read_path(ENV_FGC_OUT_INDICES_PATH)?,
+        sgc_gates: read_path(ENV_SGC_GATES_PATH)?,
+        sgc_out_indices: read_path(ENV_SGC_OUT_INDICES_PATH)?,
+        fgc_compact_gates: read_path(ENV_FGC_COMPACT_GATES_PATH)?,
+        fgc_compact_out_indices: read_path(ENV_FGC_COMPACT_OUT_INDICES_PATH)?,
+        sgc_compact_gates: read_path(ENV_SGC_COMPACT_GATES_PATH)?,
+        sgc_compact_out_indices: read_path(ENV_SGC_COMPACT_OUT_INDICES_PATH)?,
+    })
+}
+
 pub fn get_instance_maintenance_batch_size() -> u32 {
     std::env::var(ENV_INSTANCE_MAINTENANCE_BATCH_SIZE)
         .ok()
@@ -571,6 +666,22 @@ pub fn get_maintenance_run_timeout_secs() -> u64 {
         .and_then(|value| value.parse::<u64>().ok())
         .map(|timeout| timeout.clamp(1, 300))
         .unwrap_or(DEFAULT_MAINTENANCE_RUN_TIMEOUT_SECS)
+}
+
+pub fn get_p2p_inbox_batch_size() -> i64 {
+    std::env::var(ENV_P2P_INBOX_BATCH_SIZE)
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .map(|size| size.clamp(1, 128))
+        .unwrap_or(DEFAULT_P2P_INBOX_BATCH_SIZE)
+}
+
+pub fn get_p2p_outbox_batch_size() -> i64 {
+    std::env::var(ENV_P2P_OUTBOX_BATCH_SIZE)
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .map(|size| size.clamp(1, 128))
+        .unwrap_or(DEFAULT_P2P_OUTBOX_BATCH_SIZE)
 }
 
 pub fn is_enable_committee_instance_key_delete() -> bool {
@@ -605,4 +716,34 @@ pub fn get_genesis_sequencer_commit_id() -> [u8; 32] {
     let hexed = std::env::var(ENV_GENESIS_SEQUENCER_COMMIT_TXID).unwrap();
     let txid = bitcoin::Txid::from_str(&hexed).expect("Invalid genesis sequencer commit txid");
     txid.to_byte_array()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn soldering_proof_payload_store_config_required_for_soldering_actors() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe { std::env::remove_var(ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH) };
+
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Verifier).is_err());
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Operator).is_err());
+        assert!(validate_soldering_proof_payload_store_config(&Actor::All).is_err());
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Committee).is_ok());
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Watchtower).is_ok());
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Publisher).is_ok());
+
+        unsafe { std::env::set_var(ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH, "/tmp/store") };
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Verifier).is_ok());
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Operator).is_ok());
+
+        unsafe { std::env::set_var(ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH, " ") };
+        assert!(validate_soldering_proof_payload_store_config(&Actor::Verifier).is_err());
+
+        unsafe { std::env::remove_var(ENV_SOLDERING_PROOF_PAYLOAD_STORE_PATH) };
+    }
 }

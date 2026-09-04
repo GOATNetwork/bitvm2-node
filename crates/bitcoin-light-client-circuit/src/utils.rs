@@ -1,6 +1,7 @@
 use bitcoin::absolute::LockTime;
 use bitcoin::blockdata::opcodes::all::*;
 use bitcoin::blockdata::script::Builder;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 
@@ -81,7 +82,7 @@ pub fn create_fee_tx(
 }
 
 pub fn create_sequencer_update_partial_tx(
-    commitment: [u8; 64],
+    commitment: [u8; 32],
     update_connector: &Option<OutPoint>,
     replenish_fee_connector: &Option<OutPoint>,
     next_update_connector: Address,
@@ -96,6 +97,8 @@ pub fn create_sequencer_update_partial_tx(
 
     println!("commitment: {commitment:?}");
 
+    let commitment =
+        PushBytesBuf::try_from(commitment.to_vec()).expect("commitment payload is pushable");
     let script = Builder::new().push_opcode(OP_RETURN).push_slice(commitment).into_script();
 
     // make TxOut with 0 satoshis

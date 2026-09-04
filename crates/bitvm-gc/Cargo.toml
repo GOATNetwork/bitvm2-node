@@ -1,0 +1,48 @@
+[package]
+name = "bitvm-gc"
+edition = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+bitvm = { workspace = true }
+goat = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+hkdf = { workspace = true }
+chacha20poly1305 = { workspace = true }
+rand = { workspace = true }
+bitcoin = { workspace = true, features = ["serde"] }
+musig2 = { workspace = true }
+secp256k1 = { workspace = true }
+anyhow = { workspace = true }
+hex = { workspace = true }
+bitcoin-script = { workspace = true }
+tracing = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-serialize = { workspace = true }
+ark-ff = { workspace = true }
+verifiable-circuit-babe = { workspace = true }
+garbled-snark-verifier = { workspace = true }
+soldering-host = { workspace = true }
+rayon = { workspace = true }
+
+serde-big-array = { workspace = true }
+serde_json = { workspace = true }
+bincode.workspace = true
+uuid = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+strum = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+ark-crypto-primitives = { workspace = true }
+ark-ec = { workspace = true }
+esplora-client = { workspace = true }
+rand_chacha = { workspace = true }
+reqwest = { workspace = true }
+reqwest-0-11 = { package = "reqwest", version = "0.11.27", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { workspace = true, features = ["macros", "time"] }
+
+[features]
+default = []
+ci-tests = []

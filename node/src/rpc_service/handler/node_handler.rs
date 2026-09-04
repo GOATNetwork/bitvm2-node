@@ -7,13 +7,13 @@ use crate::rpc_service::validation::InputValidator;
 use crate::rpc_service::{AppState, current_time_secs};
 use crate::utils::reflect_goat_address;
 use axum::extract::{Path, Query, State};
-use bitvm2_lib::actors::Actor;
+use bitvm_lib::actors::Actor;
 use std::sync::Arc;
 use store::localdb::NodeQuery;
 
 /// Get node list
 ///
-/// Returns a paginated list of BitVM2 network nodes based on query parameters. Supports filtering by
+/// Returns a paginated list of BitVM network nodes based on query parameters. Supports filtering by
 /// GOAT address, actor type, and online status. Automatically updates the current node's timestamp.
 ///
 /// # Query Parameters
@@ -32,7 +32,7 @@ use store::localdb::NodeQuery;
 ///
 /// # Use Case
 ///
-/// Frontend applications use this to display the list of active nodes in the BitVM2 network,
+/// Frontend applications use this to display the list of active nodes in the BitVM network,
 /// showing their roles, availability, and connection information.
 ///
 /// # Example
@@ -113,7 +113,7 @@ pub async fn get_nodes(
 
 /// Get nodes overview statistics
 ///
-/// Returns statistical overview of all nodes in the BitVM2 network, including counts by actor type
+/// Returns statistical overview of all nodes in the BitVM network, including counts by actor type
 /// and online/offline status. Automatically updates the current node's timestamp.
 ///
 /// # Returns
@@ -140,8 +140,8 @@ pub async fn get_nodes(
 ///     "total": 18,
 ///     "online_operators": 8,
 ///     "offline_operators": 2,
-///     "online_challengers": 3,
-///     "offline_challengers": 1,
+///     "online_verifiers": 3,
+///     "offline_verifiers": 1,
 ///     "online_committees": 2,
 ///     "offline_committees": 0,
 ///     "online_watchtowers": 2,

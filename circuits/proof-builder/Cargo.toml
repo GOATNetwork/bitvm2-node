@@ -8,17 +8,22 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 serde.workspace = true
+serde_json.workspace = true
+secp256k1.workspace = true
+hex.workspace = true
+rand.workspace = true
 
 # Ziren
 zkm-sdk.workspace = true
-zkm-prover.workspace = true
-zkm-verifier.workspace = true
+#zkm-prover.workspace = true
+#zkm-verifier.workspace = true
+verifier.workspace = true
 strum = { workspace = true, features = ["derive"] }
 
 #
 header-chain.workspace = true
 commit-chain.workspace = true
-bitcoin-light-client-circuit.workspace = true
+#bitcoin-light-client-circuit.workspace = true
 state-chain.workspace = true
 bitcoin = { workspace = true }
 

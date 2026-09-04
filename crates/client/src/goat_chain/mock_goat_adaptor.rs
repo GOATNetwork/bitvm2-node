@@ -78,6 +78,10 @@ impl ChainAdaptor for MockAdaptor {
         }
     }
 
+    async fn native_balance(&self, _address: &[u8; 20]) -> anyhow::Result<U256> {
+        Ok(U256::ZERO)
+    }
+
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
         info!("call get_tx_receipt");
         Ok(if let Ok(tx_receipt) = self.tx_receipts.lock() {
@@ -266,7 +270,12 @@ impl ChainAdaptor for MockAdaptor {
         Ok(hex::encode(generate_random_bytes(32)))
     }
 
-    async fn gateway_cancel_withdraw(&self, _graph_id: &[u8; 16]) -> anyhow::Result<String> {
+    async fn gateway_cancel_withdraw(
+        &self,
+        _graph_id: &[u8; 16],
+        _nonce: U256,
+        _committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
         info!("call cancel_withdraw");
         Ok(hex::encode(generate_random_bytes(32)))
     }
@@ -461,6 +470,14 @@ impl ChainAdaptor for MockAdaptor {
         Ok(vec![])
     }
 
+    async fn committee_mana_get_verifiers(&self) -> anyhow::Result<Vec<Vec<u8>>> {
+        Ok(vec![])
+    }
+
+    async fn committee_mana_is_verifier(&self, _peer_id: &[u8]) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
     async fn committee_mana_add_watchtower(
         &self,
         _watchtower: &[u8; 32],
@@ -481,6 +498,10 @@ impl ChainAdaptor for MockAdaptor {
 
     async fn peg_btc_balance(&self, _address: &[u8; 20]) -> anyhow::Result<U256> {
         Ok(U256::default())
+    }
+
+    async fn peg_btc_decimals(&self) -> anyhow::Result<u8> {
+        Ok(18)
     }
 
     async fn peg_btc_allowance(

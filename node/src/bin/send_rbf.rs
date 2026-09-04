@@ -7,10 +7,10 @@
 //!
 //! Env:
 //! - BITVM_SECRET: node BTC private key
-//! - BITCOIN_NETWORK: bitcoin | testnet | testnet4 | signet | regtest (optional)
+//! - BITCOIN_NETWORK: bitcoin | testnet4 | signet | regtest (optional)
 //!
 //! Example:
-//! - cargo run -p bitvm2-noded --bin send-rbf -- \
+//! - cargo run -p bitvm-noded --bin send-rbf -- \
 //!   --vin <txid>:0 \
 //!   --vin <txid>:1 \
 //!   --fee-amount 10000 \
@@ -31,8 +31,8 @@ use dotenv::dotenv;
 use goat::transactions::base::Input;
 use tracing_subscriber::EnvFilter;
 
-use bitvm2_noded::env::{DUST_AMOUNT, get_bitvm_key, get_network};
-use bitvm2_noded::utils::{broadcast_tx, node_p2wsh_address, node_sign};
+use bitvm_noded::env::{DUST_AMOUNT, get_bitvm_key, get_network};
+use bitvm_noded::utils::{broadcast_tx, node_p2wsh_address, node_sign};
 
 const DEFAULT_RBF_SEQUENCE: u32 = 0xFFFF_FFFD;
 
@@ -56,8 +56,8 @@ struct Args {
     fee_amount: u64,
 
     /// Optional esplora base URL override
-    #[arg(long, default_value = "https://mempool.space/testnet4/api")]
-    esplora_url: String,
+    #[arg(long)]
+    esplora_url: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let network = get_network();
-    let btc_client = BTCClient::new(network, Some(&args.esplora_url));
+    let btc_client = BTCClient::new(network, args.esplora_url.as_deref());
 
     let node_keypair = get_bitvm_key()?;
     let node_address = node_p2wsh_address(network, &node_keypair.public_key().into());

@@ -14,9 +14,7 @@ state-chain = { path = "../../../crates/state-chain" }
 bitcoin-light-client-circuit = { path = "../../../crates/bitcoin-light-client-circuit" }
 
 # Ziren
-zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", features = ["verify"] }
-zkm-verifier = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-verifier" }
-#zkm-verifier = { path = "../../../Ziren/crates/verifier" }
+zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", tag = "v1.2.7", features = ["verify"] }
 #zkm-zkvm = { path = "../../../Ziren/crates/zkvm/entrypoint", features = ["verify"] }
 
 # Statically turns off logging
@@ -42,3 +40,9 @@ alloy-primitives-v1-4-1 = { git = "https://github.com/ziren-patches/core.git", p
 secp256k1-v0-29-1 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.29.1" }
 #secp256k1-v0-30-0 = { git = "https://github.com/ziren-patches/rust-secp256k1", package = "secp256k1", branch = "patch-0.30.0" }
 #bitcoin = { git = "https://github.com/ProjectZKM/rust-bitcoin", branch = "patch-0.32.7" }
+
+[features]
+imm-wrap-vk = [
+    "zkm-zkvm/imm-wrap-vk",
+    "bitcoin-light-client-circuit/imm-wrap-vk",
+]

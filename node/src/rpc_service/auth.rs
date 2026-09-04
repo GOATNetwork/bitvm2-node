@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub const AUTH_TIMESTAMP_HEADER: &str = "x-auth-timestamp";
 pub const AUTH_SIGNATURE_HEADER: &str = "x-auth-signature";
 const AUTH_WINDOW_SECS: i64 = 300;
-const AUTH_DOMAIN: &[u8] = b"bitvm2-auth";
+const AUTH_DOMAIN: &[u8] = b"bitvm-auth";
 
 /// Verify that the request carries a valid Schnorr signature produced by the
 /// same `BITVM_SECRET` this node is configured with.
@@ -17,7 +17,7 @@ const AUTH_DOMAIN: &[u8] = b"bitvm2-auth";
 /// Expected headers:
 ///   - `X-Auth-Timestamp`: current unix epoch seconds (string)
 ///   - `X-Auth-Signature`: hex-encoded 64-byte Schnorr signature of
-///     `SHA256(b"bitvm2-auth" || timestamp_str)`
+///     `SHA256(b"bitvm-auth" || timestamp_str)`
 pub fn verify_request_auth(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     let timestamp_str = headers
         .get(AUTH_TIMESTAMP_HEADER)
@@ -65,7 +65,7 @@ pub fn verify_request_auth(headers: &HeaderMap) -> Result<(), (StatusCode, Json<
 
 /// Build the `(x-auth-timestamp, x-auth-signature)` header values for a request.
 ///
-/// Signs `SHA256(b"bitvm2-auth" || timestamp_str)` with the provided keypair using
+/// Signs `SHA256(b"bitvm-auth" || timestamp_str)` with the provided keypair using
 /// Schnorr and returns `(timestamp_str, hex_signature)`.
 pub fn sign_request_auth(keypair: &Keypair) -> (String, String) {
     let timestamp = std::time::SystemTime::now()

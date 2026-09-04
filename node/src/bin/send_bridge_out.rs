@@ -12,7 +12,7 @@ use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address as EvmAddress, Bytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::{Context, Result, anyhow, bail};
-use bitvm2_noded::env::{
+use bitvm_noded::env::{
     ENV_GOAT_PRIVATE_KEY, ENV_GOAT_SWAP_CONTRACT_ADDRESS, get_goat_network, goat_config_from_env,
 };
 use clap::{Parser, Subcommand};
@@ -739,6 +739,7 @@ async fn call_get_escrow_data(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv::dotenv().ok();
     let args = Args::parse();
     let client = reqwest::Client::new();
 

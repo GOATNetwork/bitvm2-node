@@ -58,6 +58,7 @@ pub struct NodeDesc {
 pub trait ToNodeDesc {
     fn to_node_desc(self, time_threshold: i64, current_peer_id: &str) -> NodeDesc;
 }
+
 impl ToNodeDesc for Node {
     fn to_node_desc(self, time_threshold: i64, current_peer_id: &str) -> NodeDesc {
         let status = if self.updated_at >= time_threshold || self.peer_id == current_peer_id {

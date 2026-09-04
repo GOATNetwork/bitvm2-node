@@ -4,8 +4,8 @@ use commit_chain::*;
 use proof_builder::{LongRunning, ProofBuilder, ProofRequest};
 use std::str::FromStr;
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
+    ZKMStdin, include_elf,
 };
 
 use sha2::{Digest, Sha256};
@@ -19,9 +19,14 @@ const COMMIT_CHAIN: &[u8] = include_elf!("guest");
 use std::fs;
 
 use clap::Parser;
+
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -31,7 +36,14 @@ pub struct Args {
     #[arg(long, env, default_value = "http://127.0.0.1:3002")]
     pub esplora_url: String,
 
-    #[arg(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[arg(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub commit_info: String,
 
     #[arg(long, default_value = "commits.bin")]
@@ -81,14 +93,14 @@ pub async fn fetch_commit_chain(
     commits_file: &str,
     network: Network,
 ) -> anyhow::Result<Vec<CircuitCommit>> {
-    let btc_client = BTCClient::new(network, Some(&esplora_url));
+    let btc_client = BTCClient::new(network, Some(esplora_url));
 
     tracing::info!(
         "Fetching commit chain, commit_info_file: {}, commits_file: {}",
         commit_info_file,
         commits_file
     );
-    let rdr = std::fs::File::open(commit_info_file).context(&("read error"))?;
+    let rdr = std::fs::File::open(commit_info_file).context("read error")?;
     let ci: CommitInfo = serde_json::from_reader(rdr)?;
     let mut commits: Vec<CircuitCommit> = vec![];
     let txid = Txid::from_str(&ci.txid)?;
@@ -99,12 +111,20 @@ pub async fn fetch_commit_chain(
     };
     let commit_txn = btc_client.get_tx(&txid).await?.unwrap();
 
-    let op_return_data = extract_op_return_data(&commit_txn.output);
-    let mut sequencer_set_hash: [u8; 32] = [0u8; 32];
-    sequencer_set_hash.copy_from_slice(&op_return_data[0..32]);
-
-    if let tendermint::Hash::Sha256(expected_hash) = sequencer_hash(&ci.sequencers) {
-        assert_eq!(expected_hash, sequencer_set_hash);
+    let commitment =
+        extract_commit_chain_commitment(&commit_txn.output).map_err(anyhow::Error::msg)?;
+    if let tendermint::Hash::Sha256(sequencer_set_hash) = sequencer_hash(&ci.sequencers) {
+        anyhow::ensure!(
+            commitment
+                == commit_chain_commitment_digest(
+                    sequencer_set_hash,
+                    ci.genesis_evm_block_hash,
+                    ci.program_history_root,
+                    ci.proof_checkpoint_root,
+                    ci.authorized_program_ids,
+                ),
+            "commit transaction digest does not match commit info"
+        );
     } else {
         panic!("Invalid sequencer set hash");
     }
@@ -114,18 +134,29 @@ pub async fn fetch_commit_chain(
         .iter()
         .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
         .collect();
+    let next_publisher_public_keys = ci.next_publisher_public_keys.as_ref().map(|keys| {
+        keys.iter()
+            .map(|compressed_pk| PublicKey::from_str(compressed_pk).unwrap())
+            .collect::<Vec<_>>()
+    });
     tracing::info!("sequencer_hash: {:?}", sequencer_hash(&ci.sequencers));
     let commit = CircuitCommit {
         commit_txn,
         sequencers: ci.sequencers.clone(),
         publisher_public_keys,
         threshold: ci.threshold,
+        next_publisher_public_keys,
+        next_threshold: ci.next_threshold,
         genesis_txid: Txid::from_str(&ci.genesis_txid)?.as_raw_hash().to_byte_array(),
+        genesis_evm_block_hash: ci.genesis_evm_block_hash,
+        program_history_root: ci.program_history_root,
         block_height,
+        proof_checkpoint_root: ci.proof_checkpoint_root,
+        authorized_program_ids: ci.authorized_program_ids,
     };
     commits.push(commit);
-    std::fs::write(&commits_file, serde_json::to_vec(&commits)?)
-        .expect(&format!("write {commits_file} error"));
+    std::fs::write(commits_file, serde_json::to_vec(&commits)?)
+        .with_context(|| format!("write {commits_file} error"))?;
     Ok(commits)
 }
 
@@ -137,6 +168,7 @@ pub struct CommitChainProofBuilder {
 }
 
 impl CommitChainProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(COMMIT_CHAIN);
@@ -172,37 +204,52 @@ impl ProofBuilder for CommitChainProofBuilder {
         };
 
         //let mut zkm_vk_hash = self.verifying_key.hash_u32();
-        // Set the previous proof type based on input_proof argument
+        // Genesis replay deliberately skips every predecessor proof sidecar.
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof))
+            let public_inputs = fs::read(format!("{}.public_inputs.bin", input_proof))
                 .context("Read public input")?;
             //let prev: CommitChainCircuitOutput = serde_json::from_slice(&public_inputs).unwrap();
             Some(public_inputs)
         };
-        let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash) = match prev_receipt.clone() {
-            Some(public_inputs) => {
-                let proof_bytes =
-                    fs::read(input_proof).context("Failed to read input proof file")?;
-                let zkm_vk_hash =
-                    fs::read(&format!("{}.vk_hash.bin", input_proof)).context("Read vk hash")?;
-                let prev_output: CommitChainCircuitOutput =
-                    zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
-                (
-                    CommitChainPrevProofType::PrevProof(prev_output),
-                    proof_bytes,
-                    public_inputs,
-                    zkm_vk_hash.to_vec(),
-                )
-            }
-            None => (CommitChainPrevProofType::GenesisBlock, Vec::new(), Vec::new(), Vec::new()),
-        };
+        let self_program_id = self.program_id()?;
+        let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
+            match prev_receipt.clone() {
+                Some(public_inputs) => {
+                    let proof_bytes =
+                        fs::read(input_proof).context("Failed to read input proof file")?;
+                    let zkm_vk_hash =
+                        fs::read(format!("{}.vk_hash.bin", input_proof)).context("Read vk hash")?;
+                    let version_path = format!("{input_proof}.zkm_version.bin");
+                    let zkm_version = fs::read(&version_path)
+                        .with_context(|| {
+                            format!("failed to read zkm_version file '{version_path}'")
+                        })
+                        .and_then(|raw_zkm_version| {
+                            String::from_utf8(raw_zkm_version).with_context(|| {
+                                format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                            })
+                        })?;
+                    let prev_proof =
+                        classify_commit_chain_output(&public_inputs).map_err(anyhow::Error::msg)?;
+                    (prev_proof, proof_bytes, public_inputs, zkm_vk_hash.to_vec(), zkm_version)
+                }
+                None => (
+                    CommitChainPrevProofType::GenesisBlock,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    ZKM_CIRCUIT_VERSION.into(),
+                ),
+            };
 
         let input: CommitChainCircuitInput = CommitChainCircuitInput {
             zkm_vk_hash,
+            zkm_version,
             zkm_proof,
             prev_proof,
+            self_program_id,
             commits: commits.to_vec(),
             zkm_public_values,
         };
@@ -238,9 +285,9 @@ impl ProofBuilder for CommitChainProofBuilder {
 
         tracing::info!("Commit chain proof cycles: {}", cycles);
 
-        if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-            panic!("{}", e);
-        }
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated commit chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))
@@ -253,7 +300,7 @@ impl ProofBuilder for CommitChainProofBuilder {
         _cycles: u64,
         proof: ZKMProofWithPublicValues,
     ) -> anyhow::Result<(String, usize)> {
-        let ProofRequest::CommitChainProofRequest { output_proof, .. } = ctx else {
+        let ProofRequest::CommitChainProofRequest { output_proof, commits, .. } = ctx else {
             anyhow::bail!("Invalid commit chain input");
         };
         //fs::write(&output_proof, bincode::serialize(&proof)?)?;
@@ -264,14 +311,19 @@ impl ProofBuilder for CommitChainProofBuilder {
         //tracing::info!("Generate proof successfully, proof: {:?}", proof);
         //Ok((public_value_hex, proof_size))
 
-        std::fs::write(&format!("{}", output_proof), proof.bytes())?;
-        let public_value_hex = hex::encode(proof.public_values.to_vec());
+        let public_values = proof.public_values.to_vec();
+
+        std::fs::write(output_proof, proof.bytes())?;
+        let public_value_hex = hex::encode(&public_values);
         let proof_size = proof.bytes().len();
-        std::fs::write(
-            &format!("{}.public_inputs.bin", output_proof),
-            proof.public_values.to_vec(),
-        )?;
-        std::fs::write(&format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        let zkm_version = proof.zkm_version.clone();
+        std::fs::write(format!("{}.public_inputs.bin", output_proof), public_values)?;
+        std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
+        let latest_commit = commits.last().context("commit proof input must be non-empty")?;
+        let commits_path = format!("{output_proof}.commits");
+        std::fs::write(&commits_path, serde_json::to_vec(std::slice::from_ref(latest_commit))?)
+            .with_context(|| format!("write {commits_path} error"))?;
         Ok((public_value_hex, proof_size))
     }
 }
@@ -287,13 +339,12 @@ mod tests {
     fn test_parse_commit_chain_proof() {
         let proof_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/commit-chain/10-1.bin.public_inputs.bin";
         let proof_bytes = std::fs::read(proof_path).unwrap();
-        let mut pis = zkm_sdk::ZKMPublicValues::from(&proof_bytes);
-        let public_input: CommitChainCircuitOutput = pis.read();
+        let public_input = decode_commit_chain_circuit_output(&proof_bytes);
         let hash = sequencer_hash(&public_input.chain_state.sequencers);
         println!("proof: {public_input:?}, hash : {:?}", hash);
 
         //let input_path = "/home/ubuntu/data/proof-builder-rpc/circuits/data/commit-chain/commit_info.json.8";
-        let input_path = "/home/ubuntu/data/stephen/bitvm2-node/circuits/data/commit-chain/commit_info.json.latest";
+        let input_path = "/home/ubuntu/data/stephen/bitvm-node/circuits/data/commit-chain/commit_info.json.latest";
         let input_bytes = std::fs::read(input_path).unwrap();
         let commit_info: CommitInfo = serde_json::from_slice(&input_bytes).unwrap();
         info!("commit info: {:?}", commit_info);

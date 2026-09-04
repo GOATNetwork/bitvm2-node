@@ -9,6 +9,8 @@ use store::localdb::LocalDB;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::api::metrics_service::{ApiMetricsState, STATE_CHAIN_PROOF};
+
 #[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
 async fn spawn_state_chain_ctx_builder(
     args: state_chain_proof::Args,
@@ -82,8 +84,8 @@ async fn spawn_state_chain_ctx_builder(
 
                 let snap_path = std::path::Path::new(&args.input_proof).parent().unwrap().to_str().unwrap();
                 tracing::info!("fetch snap_path: {snap_path:?}");
-                std::fs::write(&format!("{}/{}.args", snap_path, args.start), serde_json::to_string(&args)?)?;
-                std::fs::write(&format!("{}/{}.ctx", snap_path, args.start), serde_json::to_string(&ctx)?)?;
+                std::fs::write(format!("{}/{}.args", snap_path, args.start), serde_json::to_string(&args)?)?;
+                std::fs::write(format!("{}/{}.ctx", snap_path, args.start), serde_json::to_string(&ctx)?)?;
 
                 let affected = match create_long_running_task(
                     &local_db,
@@ -115,12 +117,13 @@ async fn spawn_state_chain_ctx_builder(
     }
 }
 
-#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, metrics_state, cancellation_token))]
 async fn spawn_state_chain_prover(
     start_index: u64,
     batch_size: u64,
     input_proof: String,
     local_db: LocalDB,
+    metrics_state: ApiMetricsState,
     interval: u64,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<()> {
@@ -133,7 +136,7 @@ async fn spawn_state_chain_prover(
                 tracing::info!("prover: start proving, block_start: {start_index}, batch_size: {batch_size}");
 
                 let snap_path = std::path::Path::new(&input_proof).parent().unwrap().to_str().unwrap();
-                let args: state_chain_proof::Args = match std::fs::read(&format!("{}/{}.args", snap_path, start_index)) {
+                let args: state_chain_proof::Args = match std::fs::read(format!("{}/{}.args", snap_path, start_index)) {
                     Ok(x) => match serde_json::from_slice(&x) {
                         Ok(args) => args,
                         Err(e) => {
@@ -148,7 +151,7 @@ async fn spawn_state_chain_prover(
                     }
                 };
 
-                let ctx: ProofRequest = match &std::fs::read(&format!("{}/{}.ctx", snap_path, start_index)) {
+                let ctx: ProofRequest = match std::fs::read(format!("{}/{}.ctx", snap_path, start_index)) {
                     Ok(x) => match serde_json::from_slice(&x) {
                         Ok(ctx) => ctx,
                         Err(e) => {
@@ -192,22 +195,32 @@ async fn spawn_state_chain_prover(
                 };
                 tracing::info!("Updated long running task to proving state, affected rows: {affteced}");
 
-                let (input, proof, cycles, proving_time) =
-                    match builder.build_proof(&ctx) {
-                        Ok(d) => d,
-                        Err(err) => {
-                            tracing::error!("Build proof error: {err}");
-                            continue;
-                        }
-                    };
-
-                let zkm_version = proof.zkm_version.clone();
-                let (public_value_hex, proof_size) = match builder.save_proof(&ctx, &input, cycles, proof) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        tracing::error!("Save proof error: {e}");
-                        continue;
-                    }
+                let attempt_start = tokio::time::Instant::now();
+                let attempt: anyhow::Result<u64> = async {
+                    let (input, proof, cycles, proving_time) = builder.build_proof(&ctx)?;
+                    let zkm_version = proof.zkm_version.clone();
+                    let (public_value_hex, proof_size) =
+                        builder.save_proof(&ctx, &input, cycles, proof)?;
+                    update_long_running_task(
+                        &local_db,
+                        start_index as i64,
+                        batch_size as i64,
+                        args.output_proof.clone(),
+                        public_value_hex,
+                        proof_size as i64,
+                        cycles,
+                        Proven,
+                        StateChainProofBuilder::name(),
+                        proving_time as i64,
+                        zkm_version,
+                    )
+                    .await
+                }
+                .await;
+                let outcome = if matches!(&attempt, Ok(affected) if *affected > 0) {
+                    "success"
+                } else {
+                    "failed"
                 };
 
                 let affteced = match update_long_running_task(
@@ -225,12 +238,12 @@ async fn spawn_state_chain_prover(
                     el_anchor,
                 ).await {
                     Ok(affected) => affected,
-                    Err(e) => {
-                        tracing::error!("Update long running task to proven state error: {e:?}");
+                    Err(error) => {
+                        tracing::error!("State chain proof attempt failed: {error}");
                         continue;
                     }
                 };
-                tracing::info!("Updated long running task to proven state, affected rows: {affteced}");
+                tracing::info!("Updated long running task to proven state, affected rows: {affected}");
                 start_index += batch_size;
             }
             _ = cancellation_token.cancelled() => {
@@ -240,10 +253,11 @@ async fn spawn_state_chain_prover(
     }
 }
 
-#[tracing::instrument(level = "info", skip(local_db, cancellation_token))]
+#[tracing::instrument(level = "info", skip(local_db, metrics_state, cancellation_token))]
 pub(crate) fn spawn_state_chain_proof_task(
     args: state_chain_proof::Args,
     local_db: LocalDB,
+    metrics_state: ApiMetricsState,
     interval: u64,
     initial_delay: u64,
     cancellation_token: CancellationToken,
@@ -272,18 +286,16 @@ pub(crate) fn spawn_state_chain_proof_task(
         )
         .await?;
 
-        if let Some(task_failed) = cur_task_failed {
-            if let Some(ref task) = cur_task {
-                if task.block_start == task_failed.block_start
-                    && task.block_end == task_failed.block_end
-                {
-                    cur_task = Some(task_failed);
-                } else {
-                    if task.block_start < args.start as i64 {
-                        // load from config
-                        cur_task = None;
-                    }
-                }
+        if let Some(task_failed) = cur_task_failed
+            && let Some(ref task) = cur_task
+        {
+            if task.block_start == task_failed.block_start
+                && task.block_end == task_failed.block_end
+            {
+                cur_task = Some(task_failed);
+            } else if task.block_start < args.start as i64 {
+                // load from config
+                cur_task = None;
             }
         };
 
@@ -306,6 +318,7 @@ pub(crate) fn spawn_state_chain_proof_task(
             args.batch_size,
             input_proof,
             local_db.clone(),
+            metrics_state,
             interval,
             cancellation_token.clone(),
         ));

@@ -1,6 +1,7 @@
 use crate::MMRGuest;
+use bincode::Options as BincodeOptions;
 use bitcoin::{
-    BlockHash, CompactTarget, TxMerkleNode,
+    BlockHash, CompactTarget, Network, TxMerkleNode,
     block::{Header, Version},
     hashes::Hash,
 };
@@ -26,6 +27,14 @@ pub const NETWORK_TYPE: &str = {
         None => "mainnet",
         _ => panic!("Invalid network type"),
     }
+};
+
+pub const NETWORK: Network = match NETWORK_TYPE.as_bytes() {
+    b"mainnet" => Network::Bitcoin,
+    b"testnet4" => Network::Testnet4,
+    b"signet" => Network::Signet,
+    b"regtest" => Network::Regtest,
+    _ => panic!("Unsupported network"),
 };
 
 // Const evaluation of network type from environment
@@ -279,6 +288,11 @@ impl ChainState {
         }
 
         self.total_work = current_work.to_be_bytes();
+        assert_eq!(
+            self.block_hashes_mmr.size,
+            self.block_height.checked_add(1).expect("invalid empty header chain state"),
+            "header MMR size must equal block height plus one"
+        );
     }
 }
 
@@ -363,6 +377,9 @@ fn calculate_work(target: &[u8; 32]) -> U256 {
 )]
 pub struct BlockHeaderCircuitOutput {
     pub chain_state: ChainState,
+    pub self_program_id: verifier::ProgramId,
+    pub program_history_hash: [u8; 32],
+    pub upgrade_checkpoint_hash: [u8; 32],
 }
 
 /// The input proof of the header chain circuit.
@@ -370,7 +387,31 @@ pub struct BlockHeaderCircuitOutput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
     GenesisBlock,
-    PrevProof(BlockHeaderCircuitOutput),
+    PrevProof,
+}
+
+pub fn classify_header_chain_output(
+    public_values: &[u8],
+) -> Result<HeaderChainPrevProofType, String> {
+    if deserialize_header_chain_output(public_values).is_ok() {
+        return Ok(HeaderChainPrevProofType::PrevProof);
+    }
+    Err("unknown header-chain public output format".to_string())
+}
+
+fn deserialize_header_chain_output(
+    public_values: &[u8],
+) -> Result<BlockHeaderCircuitOutput, Box<bincode::ErrorKind>> {
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .reject_trailing_bytes()
+        .deserialize(public_values)
+}
+
+/// Decode current header-chain public values.
+pub fn decode_header_chain_circuit_output(public_values: &[u8]) -> BlockHeaderCircuitOutput {
+    deserialize_header_chain_output(public_values)
+        .expect("failed to decode current header chain circuit output")
 }
 
 /// The input of the header chain circuit.
@@ -379,6 +420,8 @@ pub struct HeaderChainCircuitInput {
     pub zkm_proof: Vec<u8>,
     pub zkm_public_values: Vec<u8>,
     pub zkm_vk_hash: Vec<u8>,
+    pub zkm_version: String,
+    pub self_program_id: verifier::ProgramId,
     pub prev_proof: HeaderChainPrevProofType,
     pub block_headers: Vec<CircuitBlockHeader>,
 }
@@ -920,10 +963,10 @@ mod tests {
             block_headers[..11].iter().map(|header| header.time).collect::<Vec<u32>>();
 
         // The validation is expected to return false
-        assert_eq!(
-            validate_timestamp(block_headers[1].time, first_11_timestamps.try_into().unwrap(),),
-            false
-        );
+        assert!(!validate_timestamp(
+            block_headers[1].time,
+            first_11_timestamps.try_into().unwrap(),
+        ));
     }
 
     #[test]
@@ -936,13 +979,10 @@ mod tests {
         let first_11_timestamps =
             block_headers[..11].iter().map(|header| header.time).collect::<Vec<u32>>();
 
-        assert_eq!(
-            validate_timestamp(
-                block_headers[11].time,
-                first_11_timestamps.clone().try_into().unwrap(),
-            ),
-            true
-        );
+        assert!(validate_timestamp(
+            block_headers[11].time,
+            first_11_timestamps.clone().try_into().unwrap(),
+        ));
     }
 
     #[test]
@@ -1027,7 +1067,7 @@ mod tests {
             nonce: 2083236893,
         };
 
-        let bridge_header: CircuitBlockHeader = header.clone().into();
+        let bridge_header: CircuitBlockHeader = header.into();
 
         assert_eq!(bridge_header.version, header.version.to_consensus());
         assert_eq!(bridge_header.prev_block_hash, *header.prev_blockhash.as_byte_array());
@@ -1071,7 +1111,7 @@ mod tests {
             nonce: 2083236893,
         };
 
-        let bridge_header: CircuitBlockHeader = original_header.clone().into();
+        let bridge_header: CircuitBlockHeader = original_header.into();
         let converted_header: Header = bridge_header.into();
 
         assert_eq!(original_header, converted_header);

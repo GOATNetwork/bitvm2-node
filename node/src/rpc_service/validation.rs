@@ -5,7 +5,7 @@ use alloy::primitives::Address as EvmAddress;
 use axum::Json;
 use axum::http::StatusCode;
 use bitcoin::{Address, AddressType, Network, PublicKey};
-use bitvm2_lib::actors::Actor;
+use bitvm_lib::actors::Actor;
 use libp2p::PeerId;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -182,8 +182,10 @@ impl InputValidator {
                 Json(ErrorResponse {
                     error: "INVALID_TX_NAME_TYPE".to_string(),
                     message: format!(
-                        "Invalid tx_name: {tx_name}. Valid values are: pegin.hex, kickoff.hex, pre-kickoff.hex, \
-                        watchtower-challenge-init.hex, assert-init.hex, challenge.hex, take1.hex, take2.hex, disprove.hex"
+                        "Invalid tx_name: {tx_name}. Valid values are: cur-pre-kickoff.hex, next-pre-kickoff.hex, \
+                        force-skip-kickoff.hex, quick-challenge.hex, challenge-incomplete-kickoff.hex, pegin.hex, \
+                        kickoff.hex, take1.hex, challenge.hex, watchtower-challenge-init.hex, operator-assert.hex, \
+                        verifier-assert.hex, disprove.hex, take2.hex. Use index for verifier-assert.hex and disprove.hex."
                     ),
                 }),
             )),

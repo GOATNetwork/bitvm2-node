@@ -16,6 +16,7 @@ pub trait ChainAdaptor: Send + Sync {
     fn get_default_signer_address(&self) -> Address;
     async fn get_finalized_block_number(&self) -> anyhow::Result<i64>;
     async fn get_latest_block_number(&self) -> anyhow::Result<i64>;
+    async fn native_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256>;
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>>;
     async fn debug_trace_tx(
         &self,
@@ -102,7 +103,12 @@ pub trait ChainAdaptor: Send + Sync {
         instance_id: &[u8; 16],
         graph_id: &[u8; 16],
     ) -> anyhow::Result<String>;
-    async fn gateway_cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String>;
+    async fn gateway_cancel_withdraw(
+        &self,
+        graph_id: &[u8; 16],
+        nonce: U256,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String>;
     async fn gateway_process_withdraw(
         &self,
         graph_id: &[u8; 16],
@@ -219,6 +225,8 @@ pub trait ChainAdaptor: Send + Sync {
     async fn committee_mana_is_validate_peer_id(&self, peer_id: &[u8]) -> anyhow::Result<bool>;
 
     async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>>;
+    async fn committee_mana_get_verifiers(&self) -> anyhow::Result<Vec<Vec<u8>>>;
+    async fn committee_mana_is_verifier(&self, peer_id: &[u8]) -> anyhow::Result<bool>;
     async fn committee_mana_add_watchtower(
         &self,
         watchtower: &[u8; 32],
@@ -233,6 +241,7 @@ pub trait ChainAdaptor: Send + Sync {
     ) -> anyhow::Result<String>;
 
     async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256>;
+    async fn peg_btc_decimals(&self) -> anyhow::Result<u8>;
 }
 
 #[derive(Clone, Debug)]
@@ -267,12 +276,12 @@ pub enum GoatNetwork {
 
 #[derive(Copy, Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display, EnumString)]
 pub enum DisproveTxType {
-    AssertTimeout,
-    OperatorCommitTimeout,
-    OperatorNack,
     Disprove,
     QuickChallenge,
     ChallengeIncompleteKickoff,
+    PubinDisprove,
+    OperatorChallengeNack,
+    OperatorCommitTimeout,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Display)]
@@ -355,7 +364,7 @@ pub struct WithdrawData {
     pub btc_block_height_withdraw: U256,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GraphData {
     pub operator_pubkey_prefix: u8,
     pub operator_pubkey: [u8; 32],
@@ -363,9 +372,12 @@ pub struct GraphData {
     pub kickoff_txid: [u8; 32],
     pub take1_txid: [u8; 32],
     pub take2_txid: [u8; 32],
-    pub commit_timout_txid: [u8; 32],
-    pub assert_timeout_txids: Vec<[u8; 32]>,
-    pub nack_txids: Vec<[u8; 32]>,
+    pub watchtower_challenge_init_txid: [u8; 32],
+    pub prover_assert_txid: [u8; 32],
+    pub disprove_txids: Vec<[u8; 32]>,
+    pub watchtower_challenge_timeout_txids: Vec<[u8; 32]>,
+    pub operator_challenge_nack_txids: Vec<[u8; 32]>,
+    pub operator_commit_timeout_txid: [u8; 32],
 }
 
 #[derive(Clone, Debug)]

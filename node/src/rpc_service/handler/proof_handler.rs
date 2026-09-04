@@ -132,7 +132,7 @@ async fn handle_proof_desc_forwarding(
 /// # Use Case
 ///
 /// Applications use this to retrieve proof generation status and metadata for different chain proof types
-/// in the BitVM2 network. The endpoint supports forwarding requests to dedicated proof builder services
+/// in the BitVM network. The endpoint supports forwarding requests to dedicated proof builder services
 /// when configured via environment variables.
 ///
 /// # Example
@@ -195,7 +195,7 @@ pub async fn get_chain_proof_desc(
 ///
 /// # Query Parameters
 ///
-/// - `instance_id`: Instance ID (required) - the identifier of the BitVM2 instance
+/// - `instance_id`: Instance ID (required) - the identifier of the BitVM instance
 /// - `graph_id`: Graph ID (required) - the identifier of the graph within the instance
 ///
 /// # Returns
@@ -213,7 +213,7 @@ pub async fn get_chain_proof_desc(
 /// # Use Case
 ///
 /// Applications use this to retrieve proof generation status and metadata for operator proofs
-/// in the BitVM2 network. The endpoint supports forwarding requests to dedicated proof builder services
+/// in the BitVM network. The endpoint supports forwarding requests to dedicated proof builder services
 /// when configured via environment variables.
 ///
 /// # Example

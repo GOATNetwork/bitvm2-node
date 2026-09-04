@@ -1,14 +1,9 @@
 #![no_main]
 zkm_zkvm::entrypoint!(main);
 
-use header_chain::{
-    verify_merkle_proof, BlockHeaderCircuitOutput, BlockInclusionProof, ChainState,
-    CircuitTransaction, HeaderChainCircuitInput, HeaderChainPrevProofType,
-    header_chain_circuit,
-};
+use header_chain::{header_chain_circuit, HeaderChainCircuitInput};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
 
 pub fn main() {
     let input: HeaderChainCircuitInput = zkm_zkvm::io::read();

@@ -1,5 +1,5 @@
 use alloy::primitives::Address;
-use bitvm2_lib::actors::Actor;
+use bitvm_lib::actors::Actor;
 use client::goat_chain::GOATClient;
 use std::str::FromStr;
 use store::localdb::{LocalDB, NodeQuery};

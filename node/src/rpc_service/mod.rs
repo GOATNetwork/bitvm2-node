@@ -1,5 +1,5 @@
 pub mod auth;
-mod bitvm2;
+mod bitvm;
 mod cors_config;
 pub mod handler;
 mod node;
@@ -12,37 +12,34 @@ use crate::env::{get_btc_url_from_env, get_goat_network, get_network, goat_confi
 use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof_desc, get_graph,
-    get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs, get_instance,
-    get_instance_escrow_data, get_instances, get_instances_overview, get_node, get_nodes,
-    get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph,
-    get_unsigned_pegin_txn, instance_settings, pegout, send_challenge,
+    bridge_in_request_tag, bridge_out_init_tag, get_chain_proof_desc, get_debug_message_details,
+    get_debug_status, get_graph, get_graph_debug_messages, get_graph_neighbor_ids, get_graph_tx,
+    get_graph_txn, get_graphs, get_instance, get_instance_debug_messages, get_instance_escrow_data,
+    get_instances, get_instances_overview, get_node, get_nodes, get_nodes_overview,
+    get_operator_proof_desc, get_ready_to_kickoff_graph, get_unsigned_pegin_txn, instance_settings,
+    pegout, send_challenge, send_verifier_challenge,
 };
+use anyhow::Context;
 use axum::body::Body;
 use axum::extract::Request;
-use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::put;
 use axum::{
     Router, middleware,
     routing::{get, post},
 };
-use bitvm2_lib::actors::Actor;
+use bitvm_lib::actors::Actor;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
 use client::http_client::async_client::HttpAsyncClient;
-use http::{HeaderMap, StatusCode};
-use http_body_util::BodyExt;
-use prometheus_client::registry::Registry;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use store::localdb::LocalDB;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::Level;
+use tower_http::trace::TraceLayer;
 
 #[inline(always)]
 pub fn current_time_secs() -> i64 {
@@ -77,11 +74,10 @@ impl AppState {
         local_db: LocalDB,
         actor: Actor,
         peer_id: String,
-        registry: Arc<Mutex<Registry>>,
+        metrics_state: MetricsState,
     ) -> anyhow::Result<Arc<AppState>> {
         let btc_client = BTCClient::new(get_network(), get_btc_url_from_env().as_deref());
         let goat_client = GOATClient::new(goat_config_from_env().await, get_goat_network());
-        let metrics_state = MetricsState::new(registry);
         let http_client = HttpAsyncClient::new(None);
         Ok(Arc::new(AppState {
             local_db,
@@ -91,6 +87,30 @@ impl AppState {
             actor,
             peer_id,
             http_client,
+        }))
+    }
+
+    pub async fn create_arc_mock_app_state(
+        local_db: LocalDB,
+        actor: Actor,
+        peer_id: String,
+        metrics_state: MetricsState,
+    ) -> anyhow::Result<Arc<AppState>> {
+        let (btc_client, btc_mock_adaptor) = BTCClient::new_mock_client();
+        btc_mock_adaptor.set_height(900_000);
+
+        let (goat_client, goat_mock_adaptor) = GOATClient::new_mock_client();
+        goat_mock_adaptor.set_latest_block_number(1_000_000);
+        goat_mock_adaptor.set_finalized_block_number(999_990);
+
+        Ok(Arc::new(AppState {
+            local_db,
+            btc_client,
+            goat_client,
+            metrics_state,
+            actor,
+            peer_id,
+            http_client: HttpAsyncClient::new(None),
         }))
     }
 }
@@ -115,15 +135,12 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-pub async fn serve(
+pub async fn serve_with_app_state(
     addr: String,
-    local_db: LocalDB,
-    actor: Actor,
-    peer_id: String,
-    registry: Arc<Mutex<Registry>>,
+    app_state: Arc<AppState>,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<String> {
-    let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, registry).await?;
+    let node_span = tracing::Span::current();
     let server = Router::new()
         .route(routes::ROOT, get(root))
         .route(routes::v1::NODES_BASE, get(get_nodes))
@@ -143,46 +160,72 @@ pub async fn serve(
         .route(routes::v1::GRAPHS_TXN_BY_ID, get(get_graph_txn))
         .route(routes::v1::GRAPHS_TX_BY_ID, get(get_graph_tx))
         .route(routes::v1::GRAPHS_NEIGHBOR_IDS, get(get_graph_neighbor_ids))
+        // TODO(auth): Restrict debug endpoints before exposing the RPC outside trusted operators.
+        .route(routes::v1::DEBUG_STATUS, get(get_debug_status))
+        .route(routes::v1::DEBUG_GRAPH_MESSAGES, get(get_graph_debug_messages))
+        .route(routes::v1::DEBUG_INSTANCE_MESSAGES, get(get_instance_debug_messages))
+        .route(routes::v1::DEBUG_MESSAGE_DETAILS, get(get_debug_message_details))
         .route(routes::v1::GRAPHS_SEND_CHALLENGE, post(send_challenge))
+        .route(routes::v1::GRAPHS_SEND_VERIFIER_CHALLENGE, post(send_verifier_challenge))
         .route(routes::v1::PEGOUT, post(pegout))
         .route(routes::v1::PROOFS_CHAIN_PROOFS_DESC, get(get_chain_proof_desc))
         .route(routes::v1::PROOFS_OPERATOR_PROOF_DESC, get(get_operator_proof_desc))
-        .route(routes::METRICS, get(metrics_handler))
-        .layer(middleware::from_fn(print_req_and_resp_detail))
         .layer(create_secure_cors_layer())
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .make_span_with(move |request: &Request<Body>| {
+                    tracing::info_span!(
+                        parent: &node_span,
+                        "http_request",
+                        method = %request.method(),
+                        path = request.uri().path(),
+                        version = ?request.version(),
+                    )
+                })
                 .on_request(|request: &Request<Body>, _span: &tracing::Span| {
                     tracing::info!(
-                        "API Request: {} {}, {:?}, Headers: {:?}, Content-Type: {:?}",
-                        request.method(),
-                        request.uri(),
-                        request.version(),
-                        request.headers(),
-                        request.headers().get("content-type")
+                        event = "http_request",
+                        method = %request.method(),
+                        path = request.uri().path(),
+                        content_type = ?request.headers().get("content-type"),
+                        "RPC request received"
                     );
                 })
                 .on_response(
                     |response: &Response<Body>, latency: Duration, _span: &tracing::Span| {
                         tracing::info!(
-                            "API Response: - Status: {} - Latency: {:?}",
-                            response.status(),
-                            latency
+                            event = "http_response",
+                            status = %response.status(),
+                            elapsed_ms = latency.as_millis() as u64,
+                            "RPC response sent"
                         );
                     },
                 )
                 .on_failure(
-                    |error: ServerErrorsFailureClass, _latency: Duration, _span: &tracing::Span| {
-                        tracing::error!("API Error: {:?}", error);
+                    |error: ServerErrorsFailureClass, latency: Duration, _span: &tracing::Span| {
+                        tracing::error!(
+                            event = "http_request_failure",
+                            error_class = ?error,
+                            elapsed_ms = latency.as_millis() as u64,
+                            "RPC request failed"
+                        );
                     },
                 ),
         )
         .layer(middleware::from_fn_with_state(app_state.clone(), metrics_middleware))
+        .route(routes::METRICS, get(metrics_handler))
         .with_state(app_state);
 
-    let listener = TcpListener::bind(addr).await.unwrap();
-    tracing::info!("RPC listening on {}", listener.local_addr().unwrap());
+    let listener = TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("failed to bind RPC listener to {addr}"))?;
+    let listening_addr =
+        listener.local_addr().context("failed to determine RPC listener address")?;
+    tracing::info!(
+        event = "rpc_listening",
+        address = %listening_addr,
+        "RPC listener started"
+    );
 
     tokio::select! {
         result = axum::serve(listener, server) => {
@@ -201,37 +244,16 @@ pub async fn serve(
     }
 }
 
-/// This method introduces performance overhead and is temporarily used for debugging with the frontend.
-/// It will be removed afterwards.
-async fn print_req_and_resp_detail(
-    _headers: HeaderMap,
-    req: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    // TODO remove after the service stabilizes.
-    let mut print_str = format!(
-        "API Request: method:{}, uri:{}, content_type:{:?}, body:",
-        req.method(),
-        req.uri(),
-        req.headers().get("content-type")
-    );
-    let (parts, body) = req.into_parts();
-    let bytes = body.collect().await.unwrap().to_bytes();
-    if !bytes.is_empty() {
-        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
-    }
-    tracing::debug!("{}", print_str);
-    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
-    let resp = next.run(req).await;
-
-    let mut print_str = format!("API Response: status:{}, body:", resp.status(),);
-    let (parts, body) = resp.into_parts();
-    let bytes = body.collect().await.unwrap().to_bytes();
-    if !bytes.is_empty() {
-        print_str = format!("{print_str} {}", String::from_utf8_lossy(&bytes));
-    }
-    tracing::debug!("{}", print_str);
-    Ok(Response::from_parts(parts, axum::body::Body::from(bytes)))
+pub async fn serve(
+    addr: String,
+    local_db: LocalDB,
+    actor: Actor,
+    peer_id: String,
+    metrics_state: MetricsState,
+    cancellation_token: CancellationToken,
+) -> anyhow::Result<String> {
+    let app_state = AppState::create_arc_app_state(local_db, actor, peer_id, metrics_state).await?;
+    serve_with_app_state(addr, app_state, cancellation_token).await
 }
 
 #[cfg(test)]
@@ -239,7 +261,8 @@ mod tests {
     use crate::env::{
         ENV_GOAT_CHAIN_URL, ENV_GOAT_GATEWAY_CONTRACT_ADDRESS, ENV_PROOF_SEVER_URL, get_network,
     };
-    use crate::rpc_service::bitvm2::{
+    use crate::metrics_service::MetricsState;
+    use crate::rpc_service::bitvm::{
         BRIDGE_IN_AMOUNTS, GraphGetResponse, GraphListResponse, InstanceGetResponse,
         InstanceListResponse, InstanceOverviewResponse, InstanceSettingResponse,
     };
@@ -259,8 +282,11 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use store::localdb::LocalDB;
-    use store::{Graph, GraphStatus, Instance, InstanceBridgeInStatus, Node, create_local_db};
+    use store::localdb::{GraphRuntimeUpdate, LocalDB, StorageProcessor};
+    use store::{
+        Graph, GraphStatus, GraphStatusSource, Instance, InstanceBridgeInStatus, Node,
+        create_local_db,
+    };
     use tokio::time::sleep;
     use tokio_util::sync::CancellationToken;
     use tracing::{error, info};
@@ -357,12 +383,106 @@ mod tests {
         listener.local_addr().unwrap().to_string()
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn metrics_use_route_templates_and_exclude_scrapes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let addr = available_addr();
+        let local_db = create_local_db(&temp_sqlite_db_path()).await;
+        let metrics_state = MetricsState::new(Arc::new(Mutex::new(Registry::default())));
+        let app_state = rpc_service::AppState::create_arc_mock_app_state(
+            local_db,
+            Actor::Verifier,
+            generate_local_key().public().to_peer_id().to_string(),
+            metrics_state,
+        )
+        .await?;
+        let cancellation_token = CancellationToken::new();
+        let server_token = cancellation_token.clone();
+        let server =
+            tokio::spawn(rpc_service::serve_with_app_state(addr.clone(), app_state, server_token));
+        sleep(Duration::from_millis(100)).await;
+
+        let client = Client::new();
+        client.get(format!("http://{addr}/")).send().await?.error_for_status()?;
+        let unmatched = client.get(format!("http://{addr}/missing")).send().await?;
+        assert_eq!(unmatched.status().as_u16(), 404);
+        let first_scrape =
+            client.get(format!("http://{addr}/metrics")).send().await?.text().await?;
+        let second_scrape =
+            client.get(format!("http://{addr}/metrics")).send().await?.text().await?;
+
+        assert!(
+            first_scrape
+                .contains("http_requests_total{method=\"GET\",route=\"/\",status=\"200\"} 1")
+        );
+        assert!(
+            first_scrape.contains(
+                "http_requests_total{method=\"GET\",route=\"unmatched\",status=\"404\"} 1"
+            )
+        );
+        assert!(first_scrape.contains("http_requests_in_flight 0"));
+        assert!(!first_scrape.contains("route=\"/metrics\""));
+        assert_eq!(first_scrape, second_scrape);
+
+        cancellation_token.cancel();
+        server.await??;
+        Ok(())
+    }
+
     async fn init_nodes_data(local_db: &LocalDB, nodes: &[Node]) -> anyhow::Result<()> {
         let mut tx = local_db.start_transaction().await?;
         for node in nodes {
             tx.upsert_node(node).await?;
         }
         tx.commit().await?;
+        Ok(())
+    }
+
+    async fn seed_graph_runtime(
+        tx: &mut StorageProcessor<'_>,
+        graph: &Graph,
+    ) -> anyhow::Result<()> {
+        let target_status = GraphStatus::from_str(&graph.status)?;
+        let sub_status = graph.sub_status.clone();
+        let challenge_txid = graph.challenge_txid.clone();
+        let init_withdraw_tx_hash = graph.init_withdraw_tx_hash.clone();
+        let bridge_out_start_at = graph.bridge_out_start_at;
+        let proceed_withdraw_height = graph.proceed_withdraw_height;
+
+        let mut definition = graph.clone();
+        definition.status = GraphStatus::OperatorPresigned.to_string();
+        definition.sub_status.clear();
+        definition.challenge_txid = None;
+        definition.init_withdraw_tx_hash = None;
+        definition.bridge_out_start_at = 0;
+        definition.proceed_withdraw_height = 0;
+        tx.upsert_graph_definition(&definition).await?;
+
+        if target_status != GraphStatus::OperatorPresigned {
+            tx.transition_graph_status(
+                graph.instance_id,
+                graph.graph_id,
+                target_status,
+                GraphStatusSource::ChainReconcile,
+                (!sub_status.is_empty()).then_some(sub_status),
+            )
+            .await?;
+        }
+
+        let mut runtime = GraphRuntimeUpdate::new(graph.instance_id, graph.graph_id);
+        if let Some(challenge_txid) = challenge_txid {
+            runtime = runtime.with_challenge_txid(challenge_txid);
+        }
+        if let Some(init_withdraw_tx_hash) = init_withdraw_tx_hash {
+            runtime = runtime.with_init_withdraw_tx_hash(init_withdraw_tx_hash);
+        }
+        if bridge_out_start_at != 0 {
+            runtime = runtime.with_bridge_out_start_at(bridge_out_start_at);
+        }
+        if proceed_withdraw_height != 0 {
+            runtime = runtime.with_proceed_withdraw_height(proceed_withdraw_height);
+        }
+        tx.update_graph_runtime(&runtime).await?;
         Ok(())
     }
 
@@ -376,7 +496,7 @@ mod tests {
             tx.upsert_instance(instance).await?;
         }
         for graph in graphs {
-            tx.upsert_graph(graph).await?;
+            seed_graph_runtime(&mut tx, graph).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -389,7 +509,7 @@ mod tests {
         let mut nodes = Vec::<Node>::new();
         let (_, public_key) = Secp256k1::new().generate_keypair(&mut rand::thread_rng());
         let pub_key = public_key.to_string();
-        let actor = Actor::Challenger;
+        let actor = Actor::Verifier;
         nodes.push(Node {
             peer_id: generate_local_key().public().to_peer_id().to_string(),
             actor: actor.to_string(),
@@ -427,9 +547,9 @@ mod tests {
         tokio::spawn(rpc_service::serve(
             addr.clone(),
             local_db,
-            Actor::Challenger,
+            Actor::Verifier,
             generate_local_key().public().to_peer_id().to_string(),
-            Arc::new(Mutex::new(Registry::default())),
+            MetricsState::new(Arc::new(Mutex::new(Registry::default()))),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(3)).await;
@@ -456,7 +576,7 @@ mod tests {
                 resp_validation: Some(Box::new(|text| -> bool {
                     matches!(
                         serde_json::from_str::<NodeOverViewResponse>(&text),
-                        Ok(node_overview) if node_overview.nodes_overview.online_challengers == 1 &&
+                        Ok(node_overview) if node_overview.nodes_overview.online_verifiers == 1 &&
                         node_overview.nodes_overview.online_committees == 1
                     )
                 })),
@@ -467,10 +587,10 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_bitvm2_api() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_bitvm_api() -> Result<(), Box<dyn std::error::Error>> {
         init(None);
         let addr = available_addr();
-        let actor = Actor::Challenger;
+        let actor = Actor::Verifier;
         let local_key = generate_local_key();
         let peer_id = local_key.public().to_peer_id().to_string();
         let local_db = create_local_db(&temp_sqlite_db_path()).await;
@@ -562,6 +682,7 @@ mod tests {
             status: graph_status.clone(),
             sub_status: "".to_string(),
             operator_pubkey: "".to_string(),
+            definition_hash: format!("fixture-{graph_id}"),
             next_prekickoff: None,
             cur_prekickoff_txid: None,
             force_skip_kickoff_txid: None,
@@ -572,23 +693,23 @@ mod tests {
             take1_txid: None,
             challenge_txid: None,
             take2_txid: None,
-            disprove_txid: None,
-            watchtower_challenge_init_txid: None,
+            operator_assert_txid: None,
+            verifier_assert_txids: vec![],
+            disprove_txids: vec![],
             watchtower_challenge_timeout_txids: vec![],
-            nack_txids: vec![],
-            blockhash_commit_timeout_txid: None,
-            assert_init_txid: None,
-            assert_commit_timeout_txids: vec![],
+            operator_challenge_nack_txids: vec![],
+            operator_commit_timeout_txid: None,
+            watchtower_challenge_init_txid: None,
             init_withdraw_tx_hash: Some(format!("0x{}", hex::encode(generate_random_bytes(32)))),
             bridge_out_start_at: current_time_secs() + 100,
-            zkm_version: "zkm_0.1.0".to_string(),
             status_updated_at: current_time_secs(),
             proceed_withdraw_height: 0,
             created_at: current_time_secs(),
             updated_at: current_time_secs(),
         });
+        let finalized_graph_id = Uuid::new_v4();
         graphs.push(Graph {
-            graph_id: Uuid::new_v4(),
+            graph_id: finalized_graph_id,
             instance_id: bridge_in_instance_id,
             kickoff_index: 0,
             from_addr: graph_from.clone(),
@@ -598,6 +719,7 @@ mod tests {
             status: GraphStatus::CommitteePresigned.to_string(),
             sub_status: "".to_string(),
             operator_pubkey: "".to_string(),
+            definition_hash: format!("fixture-{finalized_graph_id}"),
             next_prekickoff: None,
             cur_prekickoff_txid: None,
             force_skip_kickoff_txid: None,
@@ -608,16 +730,15 @@ mod tests {
             take1_txid: None,
             challenge_txid: None,
             take2_txid: None,
-            disprove_txid: None,
-            watchtower_challenge_init_txid: None,
+            operator_assert_txid: None,
+            verifier_assert_txids: vec![],
+            disprove_txids: vec![],
             watchtower_challenge_timeout_txids: vec![],
-            nack_txids: vec![],
-            blockhash_commit_timeout_txid: None,
-            assert_init_txid: None,
-            assert_commit_timeout_txids: vec![],
+            operator_challenge_nack_txids: vec![],
+            operator_commit_timeout_txid: None,
+            watchtower_challenge_init_txid: None,
             init_withdraw_tx_hash: None,
             bridge_out_start_at: 0,
-            zkm_version: "zkm_0.1.0".to_string(),
             status_updated_at: current_time_secs(),
             proceed_withdraw_height: 0,
             created_at: current_time_secs(),
@@ -631,7 +752,7 @@ mod tests {
             local_db.clone(),
             actor.clone(),
             peer_id.clone(),
-            Arc::new(Mutex::new(Registry::default())),
+            MetricsState::new(Arc::new(Mutex::new(Registry::default()))),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(3)).await;
@@ -767,7 +888,7 @@ mod tests {
                 })),
             },
         ];
-        do_batch_tests("bitvm2 apis", &Client::new(), &api_test_items).await?;
+        do_batch_tests("bitvm apis", &Client::new(), &api_test_items).await?;
         Ok(())
     }
 
@@ -784,7 +905,7 @@ mod tests {
             local_db,
             committee,
             committee_peer_id,
-            Arc::new(Mutex::new(Registry::default())),
+            MetricsState::new(Arc::new(Mutex::new(Registry::default()))),
             CancellationToken::new(),
         ));
         sleep(Duration::from_secs(3)).await;

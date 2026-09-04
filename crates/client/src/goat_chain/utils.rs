@@ -23,7 +23,7 @@ sol!(
     #[allow(missing_docs)]
     #[sol(rpc)]
     interface ICommitteeManagement {
-        function isValidPeerId(bytes peerId) external view returns (bool);
+        function isValidPeerId(bytes calldata peerId) external view returns (bool);
     }
 );
 

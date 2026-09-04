@@ -1,4 +1,4 @@
-Run a BitVM2 Challenger node locally.
+Run a BitVM Challenger node locally.
 
 The Challenger verifies operator operations and submits challenges if necessary.
 
@@ -8,11 +8,11 @@ The Challenger verifies operator operations and submits challenges if necessary.
    - **network**: Which network? `testnet4` or `regtest`
    - **rpc_addr**: RPC listen address. Default: `127.0.0.1:8906`
    - **p2p_port**: P2P listen port. Default: `8449` (testnet4) or `8450` (regtest)
-   - **db_path**: SQLite database path. Default: `sqlite:$PWD/bitvm2-node.db`
+   - **db_path**: SQLite database path. Default: `sqlite:$PWD/bitvm-node.db`
 
 2. Ensure the `.env` file exists in the working directory. Template configs are at:
-   - **testnet4**: `deployment/testnet4/bitvm2-nodes/challenge_0/.env.challenge_0`
-   - **regtest**: `deployment/regtest/bitvm2-nodes/challenge_0/.env.challenge_0`
+   - **testnet4**: `deployment/testnet4/bitvm-noded/challenge_0/.env.challenge_0`
+   - **regtest**: `deployment/regtest/bitvm-noded/challenge_0/.env.challenge_0`
 
    The user **must** fill in these required secrets:
    - `BITVM_SECRET` - Node BTC key (hex or `seed:...`)
@@ -21,23 +21,23 @@ The Challenger verifies operator operations and submits challenges if necessary.
 
    Copy the template if needed:
    ```bash
-   cp deployment/<network>/bitvm2-nodes/challenge_0/.env.challenge_0 .env
+   cp deployment/<network>/bitvm-noded/challenge_0/.env.challenge_0 .env
    ```
 
-3. Check if the `bitvm2-noded` binary exists at `./bin/bitvm2-noded`. If not, run:
+3. Check if the `bitvm-noded` binary exists at `./bin/bitvm-noded`. If not, run:
    ```bash
-   .claude/commands/install-bitvm2.sh install
+   .claude/commands/install-bitvm.sh install
    ```
 
 4. Start the challenger node:
 
 ```bash
-./bin/bitvm2-noded --rpc-addr <rpc_addr> --db-path <db_path> --p2p-port <p2p_port> --bootnodes "$BOOTNODES"
+./bin/bitvm-noded --rpc-addr <rpc_addr> --db-path <db_path> --p2p-port <p2p_port> --bootnodes "$BOOTNODES"
 ```
 
 To run in the background:
 ```bash
-nohup ./bin/bitvm2-noded --rpc-addr <rpc_addr> --db-path <db_path> --p2p-port <p2p_port> --bootnodes "$BOOTNODES" >challenger_$(date +'%Y%m%d').log 2>&1 &
+nohup ./bin/bitvm-noded --rpc-addr <rpc_addr> --db-path <db_path> --p2p-port <p2p_port> --bootnodes "$BOOTNODES" >challenger_$(date +'%Y%m%d').log 2>&1 &
 ```
 
 5. Verify the node is running:
@@ -49,9 +49,9 @@ Should return `Hello, World!`.
 ### Example (testnet4)
 
 ```bash
-cp deployment/testnet4/bitvm2-nodes/challenge_0/.env.challenge_0 .env
+cp deployment/testnet4/bitvm-noded/challenge_0/.env.challenge_0 .env
 # Edit .env to fill in BITVM_SECRET, GOAT_ADDRESS, PEER_KEY
-./bin/bitvm2-noded --rpc-addr 127.0.0.1:8906 --db-path sqlite:$PWD/bitvm2-node.db --p2p-port 8449 --bootnodes /ip4/34.215.238.232/tcp/8445/p2p/12D3KooWCrPTAmhFdC5DBGgkxZvJi6iuSeiDWKRL87isrt4iMHXv
+./bin/bitvm-noded --rpc-addr 127.0.0.1:8906 --db-path sqlite:$PWD/bitvm-node.db --p2p-port 8449 --bootnodes /ip4/34.215.238.232/tcp/8445/p2p/12D3KooWCrPTAmhFdC5DBGgkxZvJi6iuSeiDWKRL87isrt4iMHXv
 ```
 
 For full deployment documentation, see `deployment/README.md` (section **Challenger**).

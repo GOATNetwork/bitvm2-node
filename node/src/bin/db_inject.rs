@@ -5,14 +5,14 @@
 //!   can process it as if it were received from the network.
 //!
 //! Key args:
-//! - --db-path: local SQLite path (e.g., sqlite:/tmp/bitvm2-node.db)
-//! - --actor: Committee | Operator | Challenger | Watchtower | All
+//! - --db-path: local SQLite path (e.g., sqlite:/tmp/bitvm-node.db)
+//! - --actor: Committee | Operator | Verifier | Watchtower | All
 //! - --message-json or --message-file (one required)
-//! - --business-id (optional; inferred from content when possible)
+//! - --business-id (optional; inferred from content when unambiguous)
 //!
 //! Example:
-//! - cargo run -p bitvm2-noded --bin update-db -- \
-//!   --db-path sqlite:/tmp/bitvm2-node.db \
+//! - cargo run -p bitvm-noded --bin update-db -- \
+//!   --db-path sqlite:/tmp/bitvm-node.db \
 //!   --actor Operator \
 //!   --message-file ./message.json
 use std::fs;
@@ -23,9 +23,9 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use uuid::Uuid;
 
-use bitvm2_lib::actors::Actor;
-use bitvm2_noded::action::*;
-use bitvm2_noded::utils::upsert_message;
+use bitvm_lib::actors::Actor;
+use bitvm_noded::action::*;
+use bitvm_noded::utils::upsert_message;
 use store::create_local_db;
 
 #[derive(Parser, Debug)]
@@ -35,11 +35,11 @@ struct Args {
     #[arg(long)]
     db_path: String,
 
-    /// Target actor (Committee, Operator, Challenger, Watchtower, All)
+    /// Target actor (Committee, Operator, Verifier, Watchtower, All)
     #[arg(long, value_parser = parse_actor)]
     actor: Actor,
 
-    /// Business id used for message_id (graph_id or instance_id). If omitted, try to infer from content.
+    /// Business id used for message_id (graph_id or instance_id). If omitted, infer it when unambiguous.
     #[arg(long)]
     business_id: Option<String>,
 
@@ -80,6 +80,11 @@ fn infer_business_id(content: &GOATMessageContent) -> Option<Uuid> {
     match content {
         GOATMessageContent::PeginRequest(v) => Some(v.instance_id),
         GOATMessageContent::ConfirmInstance(v) => Some(v.instance_id),
+        GOATMessageContent::InitGraph(v) => Some(v.graph_id),
+        GOATMessageContent::GenCircuits(v) => Some(v.graph_id),
+        GOATMessageContent::CutCircuits(v) => Some(v.graph_id),
+        GOATMessageContent::SolderingProofReady(v) => Some(v.graph_id),
+        GOATMessageContent::VerifierGraphParamsEndorsement(v) => Some(v.graph_id),
         GOATMessageContent::CreateGraph(v) => Some(v.graph_id),
         GOATMessageContent::NonceGeneration(v) => Some(v.graph_id),
         GOATMessageContent::CommitteePresign(v) => Some(v.graph_id),
@@ -95,12 +100,13 @@ fn infer_business_id(content: &GOATMessageContent) -> Option<Uuid> {
         GOATMessageContent::WatchtowerChallengeInitSent(v) => Some(v.graph_id),
         GOATMessageContent::WatchtowerChallengeSent(v) => Some(v.graph_id),
         GOATMessageContent::WatchtowerChallengeTimeout(v) => Some(v.graph_id),
-        GOATMessageContent::OperatorAckTimeout(v) => Some(v.graph_id),
-        GOATMessageContent::OperatorCommitBlockHashReady(v) => Some(v.graph_id),
-        GOATMessageContent::OperatorCommitBlockHashTimeout(v) => Some(v.graph_id),
-        GOATMessageContent::AssertInitReady(v) => Some(v.graph_id),
-        GOATMessageContent::AssertCommitTimeout(v) => Some(v.graph_id),
-        GOATMessageContent::DisproveReady(v) => Some(v.graph_id),
+        GOATMessageContent::NackReady(v) => Some(v.graph_id),
+        GOATMessageContent::OperatorCommitPubinReady(v) => Some(v.graph_id),
+        GOATMessageContent::OperatorCommitPubinTimeout(v) => Some(v.graph_id),
+        GOATMessageContent::AssertReady(v) => Some(v.graph_id),
+        GOATMessageContent::AssertSent(v) => Some(v.graph_id),
+        GOATMessageContent::ChallengeAssertSent(v) => Some(v.graph_id),
+        GOATMessageContent::WronglyChallengeTimeout(v) => Some(v.graph_id),
         GOATMessageContent::DisproveSent(v) => Some(v.graph_id),
         GOATMessageContent::Take1Ready(v) => Some(v.graph_id),
         GOATMessageContent::Take1Sent(v) => Some(v.graph_id),
@@ -108,9 +114,9 @@ fn infer_business_id(content: &GOATMessageContent) -> Option<Uuid> {
         GOATMessageContent::Take2Sent(v) => Some(v.graph_id),
         GOATMessageContent::SyncGraphRequest(v) => Some(v.graph_id),
         GOATMessageContent::SyncGraph(v) => Some(v.graph_id),
-        GOATMessageContent::InstanceDiscarded(v) => {
-            v.graph_infos.first().map(|(graph_id, _, _)| *graph_id)
-        }
+        // This payload may refer to multiple graphs, so it has no canonical
+        // business id. Require callers to provide --business-id explicitly.
+        GOATMessageContent::InstanceDiscarded(_) => None,
         GOATMessageContent::RequestNodeInfo(_) | GOATMessageContent::ResponseNodeInfo(_) => None,
         GOATMessageContent::Tick => None,
     }

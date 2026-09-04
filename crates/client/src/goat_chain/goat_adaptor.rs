@@ -16,6 +16,7 @@ use alloy::providers::ext::DebugApi;
 use alloy::providers::fillers::{FillProvider, JoinFill, RecommendedFillers};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{CallConfig, GethDebugTracingOptions, GethTrace};
+use alloy::transports::http::reqwest::Client as AlloyReqwestClient;
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet, eip2718::Encodable2718},
     primitives::{Address, B256, Bytes, ChainId, FixedBytes, TxHash, U256, keccak256},
@@ -37,16 +38,16 @@ const EIP1559_MAX_BASE_FEE_WEI: u128 = 2_000_000_000;
 const EIP1559_BASE_FEE_MULTIPLIER_NUM: u128 = 125;
 const EIP1559_BASE_FEE_MULTIPLIER_DEN: u128 = 100;
 
-fn build_goat_rpc_client() -> reqwest::Client {
+fn build_goat_rpc_client() -> AlloyReqwestClient {
     let timeout = Duration::from_secs(get_goat_rpc_timeout_secs());
-    match reqwest::Client::builder().timeout(timeout).build() {
+    match AlloyReqwestClient::builder().timeout(timeout).build() {
         Ok(client) => client,
         Err(err) => {
             tracing::warn!(
                 timeout_secs = timeout.as_secs(),
                 "failed to build GOAT RPC reqwest client with timeout: {err}, fallback to default client"
             );
-            reqwest::Client::new()
+            AlloyReqwestClient::new()
         }
     }
 }
@@ -58,12 +59,12 @@ sol!(
     #[sol(rpc)]
     interface IGateway {
         enum DisproveTxType {
-            AssertTimeout,
-            OperatorCommitTimeout,
-            OperatorNack,
             Disprove,
             QuickChallenge,
-            ChallengeIncompleteKickoff
+            ChallengeIncompleteKickoff,
+            PubinDisprove,
+            OperatorChallengeNack,
+            OperatorCommitTimeout
         }
         enum PeginStatus {
             None,
@@ -72,7 +73,7 @@ sol!(
             Processing,
             Locked,
             Claimed,
-            Discarded,
+            Discarded
         }
         enum WithdrawStatus {
             None,
@@ -120,9 +121,12 @@ sol!(
             bytes32 kickoffTxid;
             bytes32 take1Txid;
             bytes32 take2Txid;
-            bytes32 commitTimoutTxid;
-            bytes32[] assertTimoutTxids;
-            bytes32[] NackTxids;
+            bytes32 watchtowerChallengeInitTxid;
+            bytes32 proverAssertTxid;
+            bytes32[] disproveTxids;
+            bytes32[] watchtowerChallengeTimeoutTxids;
+            bytes32[] operatorChallengeNackTxids;
+            bytes32 operatorCommitTimeoutTxid;
         }
 
         struct BitcoinTx {
@@ -146,10 +150,10 @@ sol!(
         uint64 public peginFeeRate;
         uint64 public minOperatorRewardSats;
         uint64 public operatorRewardRate;
-        uint64 public minStakeAmount;
-        uint64 public minChallengerReward;
-        uint64 public minDisproverReward;
-        uint64 public minSlashAmount;
+        uint256 public minStakeAmount;
+        uint256 public minChallengerReward;
+        uint256 public minDisproverReward;
+        uint256 public minSlashAmount;
 
         address public  pegBTC;
         address public  bitcoinSPV;
@@ -170,19 +174,21 @@ sol!(
         function postGraphData(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData, bytes[] calldata committeeSigs) public;
         function getGraphData(bytes16 graphId) external view returns (GraphData memory);
         function initWithdraw(bytes16 instanceId, bytes16 graphId) external;
-        function cancelWithdraw(bytes16 graphId) external;
+        function committeeCancelWithdraw(bytes16 graphId, uint256 nonce, bytes[] calldata committeeSigs) external;
         function proceedWithdraw(bytes16 graphId, BitcoinTx calldata rawKickoffTx, BitcoinTxProof calldata kickoffProof) external;
         function finishWithdrawHappyPath(bytes16 graphId, BitcoinTx calldata rawTake1Tx, BitcoinTxProof calldata take1Proof) external;
         function finishWithdrawUnhappyPath(bytes16 graphId, BitcoinTx calldata rawTake2Tx, BitcoinTxProof calldata take2Proof) external;
         function finishWithdrawDisproved(bytes16 graphId, DisproveTxType disproveTxType, uint256 txnIndex, BitcoinTx calldata rawChallengeStartTx, BitcoinTxProof calldata challengeStartTxProof, BitcoinTx calldata rawChallengeFinishTx, BitcoinTxProof calldata challengeFinishTxProof ) external;
         function getCommitteePubkeys(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys);
+        function getCommitteeAddresses(bytes16 instanceId) public view returns (address[] memory committeeAddresses);
+        function getCommitteePubkeysUnsafe(bytes16 instanceId) public view returns (bytes[] memory committeePubkeys);
         function getPostGraphDigest(bytes16 instanceId, bytes16 graphId, GraphData calldata graphData) public view returns (bytes32);
         function getPostPeginDigest(bytes16 instanceId, bytes32 peginTxid) public view returns (bytes32);
         function getGraphIdsByInstanceId(bytes16 instanceId) external view returns (bytes16[] memory);
+        function getCancelWithdrawDigestNonced(bytes16 graphId, uint256 nonce) public view returns (bytes32);
+        function getUnlockStakeDigestNonced(address operator, uint256 amount, uint256 nonce) public view returns (bytes32);
+        function unlockOperatorStake(address operator, uint256 amount, uint256 nonce, bytes[] calldata committeeSigs) external;
 
-        // Contract is not implements this functions, do something later
-        function getInitializedInstanceIds() external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
-        function getInstanceIdsByPubKey(bytes32 operatorPubkey) external view returns (bytes16[] memory retInstanceIds, bytes16[] memory retGraphIds);
     }
 );
 
@@ -259,9 +265,12 @@ sol!(
     #[allow(missing_docs)]
     #[sol(rpc)]
     interface IPegBtc{
+         function decimals() external view returns (uint8);
          function balanceOf(address account) external view returns (uint256);
          function allowance(address owner, address spender) external view returns (uint256);
          function approve(address spender, uint256 amount) external returns (bool);
+         function mint(address to, uint256 amount) external;
+         function burn(uint256 amount) external;
     }
 );
 
@@ -302,6 +311,9 @@ sol!(
         function slashStake(address operator, uint256 amount) external;
         function lockStake(address operator, uint256 amount) external;
         function unlockStake(address operator, uint256 amount) external;
+        function stake(uint256 amount) external;
+        function unstake(uint256 amount) external;
+        function registerPubkey(bytes32 pubkey) external;
     }
 );
 
@@ -314,11 +326,23 @@ sol!(
         function committeeSize() external view returns (uint256);
         function quorumSize() external view returns (uint256);
         function verifySignatures(bytes32 msgHash, bytes[] memory signatures) external view returns (bool);
+        function registerPeerId(bytes calldata peerId) external;
         function getCommitteePeerId(address member) external view returns (bytes);
-        function isValidPeerId(bytes peerId) external view returns (bool);
+        function isValidPeerId(bytes calldata peerId) external view returns (bool);
         function getWatchtowers() external view returns (bytes32[] memory);
+        function getVerifiers() external view returns (bytes[] memory);
+        function isVerifier(bytes calldata peerId) external view returns (bool);
         function addWatchtower(bytes32 watchtower, uint256 nonce, bytes[] memory authSignatures) external;
         function removeWatchtower(bytes32 watchtower, uint256 nonce, bytes[] memory authSignatures) external;
+        function getNoncedDigest(bytes32 msgHash, uint256 nonce) external view returns (bytes32);
+        function getAddWatchtowerDigestNonced(bytes32 watchtower, uint256 nonce) external view returns (bytes32);
+        function getRemoveWatchtowerDigestNonced(bytes32 watchtower, uint256 nonce) external view returns (bytes32);
+        function isAuthorizedCaller(address caller) external view returns (bool);
+        function addAuthorizedCaller(address caller, uint256 nonce, bytes[] memory authSignatures) external;
+        function removeAuthorizedCaller(address caller, uint256 nonce, bytes[] memory authSignatures) external;
+        function getAddAuthorizedCallerDigestNonced(address caller, uint256 nonce) external view returns (bytes32);
+        function getRemoveAuthorizedCallerDigestNonced(address caller, uint256 nonce) external view returns (bytes32);
+        function executeNoncedSignatures(bytes32 msgHash, uint256 nonce, bytes[] memory signatures) external;
     }
 );
 
@@ -488,7 +512,7 @@ impl GoatAdaptor {
     fn get_committee_management(&self) -> anyhow::Result<&CommitteeManagementInstance> {
         self.committee_management
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("CommitteeMnagement not initialized"))
+            .ok_or_else(|| anyhow::anyhow!("CommitteeManagement not initialized"))
     }
 
     fn get_stake_management(&self) -> anyhow::Result<&StakeManagementInstance> {
@@ -743,15 +767,17 @@ impl From<IGateway::WithdrawStatus> for WithdrawStatus {
 impl From<DisproveTxType> for IGateway::DisproveTxType {
     fn from(value: DisproveTxType) -> Self {
         match value {
-            DisproveTxType::OperatorNack => IGateway::DisproveTxType::OperatorNack,
-            DisproveTxType::OperatorCommitTimeout => {
-                IGateway::DisproveTxType::OperatorCommitTimeout
-            }
-            DisproveTxType::AssertTimeout => IGateway::DisproveTxType::AssertTimeout,
             DisproveTxType::Disprove => IGateway::DisproveTxType::Disprove,
             DisproveTxType::QuickChallenge => IGateway::DisproveTxType::QuickChallenge,
             DisproveTxType::ChallengeIncompleteKickoff => {
                 IGateway::DisproveTxType::ChallengeIncompleteKickoff
+            }
+            DisproveTxType::PubinDisprove => IGateway::DisproveTxType::PubinDisprove,
+            DisproveTxType::OperatorChallengeNack => {
+                IGateway::DisproveTxType::OperatorChallengeNack
+            }
+            DisproveTxType::OperatorCommitTimeout => {
+                IGateway::DisproveTxType::OperatorCommitTimeout
             }
         }
     }
@@ -806,17 +832,26 @@ impl From<GraphData> for IGateway::GraphData {
             kickoffTxid: FixedBytes::from_slice(&value.kickoff_txid),
             take1Txid: FixedBytes::from_slice(&value.take1_txid),
             take2Txid: FixedBytes::from_slice(&value.take2_txid),
-            commitTimoutTxid: FixedBytes::from_slice(&value.commit_timout_txid),
-            assertTimoutTxids: value
-                .assert_timeout_txids
+            watchtowerChallengeInitTxid: FixedBytes::from_slice(
+                &value.watchtower_challenge_init_txid,
+            ),
+            proverAssertTxid: FixedBytes::from_slice(&value.prover_assert_txid),
+            disproveTxids: value
+                .disprove_txids
                 .into_iter()
                 .map(|txid| FixedBytes::from_slice(&txid))
                 .collect::<Vec<_>>(),
-            NackTxids: value
-                .nack_txids
+            watchtowerChallengeTimeoutTxids: value
+                .watchtower_challenge_timeout_txids
                 .into_iter()
                 .map(|txid| FixedBytes::from_slice(&txid))
                 .collect::<Vec<_>>(),
+            operatorChallengeNackTxids: value
+                .operator_challenge_nack_txids
+                .into_iter()
+                .map(|txid| FixedBytes::from_slice(&txid))
+                .collect::<Vec<_>>(),
+            operatorCommitTimeoutTxid: FixedBytes::from_slice(&value.operator_commit_timeout_txid),
         }
     }
 }
@@ -830,13 +865,20 @@ impl From<IGateway::GraphData> for GraphData {
             kickoff_txid: value.kickoffTxid.0,
             take1_txid: value.take1Txid.0,
             take2_txid: value.take2Txid.0,
-            commit_timout_txid: value.commitTimoutTxid.0,
-            assert_timeout_txids: value
-                .assertTimoutTxids
+            watchtower_challenge_init_txid: value.watchtowerChallengeInitTxid.0,
+            prover_assert_txid: value.proverAssertTxid.0,
+            disprove_txids: value.disproveTxids.into_iter().map(|txid| txid.into()).collect(),
+            watchtower_challenge_timeout_txids: value
+                .watchtowerChallengeTimeoutTxids
                 .into_iter()
                 .map(|txid| txid.into())
                 .collect(),
-            nack_txids: value.NackTxids.into_iter().map(|txid| txid.into()).collect(),
+            operator_challenge_nack_txids: value
+                .operatorChallengeNackTxids
+                .into_iter()
+                .map(|txid| txid.into())
+                .collect(),
+            operator_commit_timeout_txid: value.operatorCommitTimeoutTxid.0,
         }
     }
 }
@@ -893,6 +935,10 @@ impl ChainAdaptor for GoatAdaptor {
         } else {
             bail!("fail to get latest block");
         }
+    }
+
+    async fn native_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
+        Ok(self.provider.get_balance(Address::from_slice(address)).await?)
     }
 
     async fn get_tx_receipt(&self, tx_hash: &str) -> anyhow::Result<Option<TransactionReceipt>> {
@@ -980,22 +1026,22 @@ impl ChainAdaptor for GoatAdaptor {
 
     async fn gateway_get_min_stake_amount(&self) -> anyhow::Result<u64> {
         let gateway = self.get_gateway()?;
-        Ok(gateway.minStakeAmount().call().await?)
+        Ok(gateway.minStakeAmount().call().await?.try_into()?)
     }
 
     async fn gateway_get_min_challenger_reward(&self) -> anyhow::Result<u64> {
         let gateway = self.get_gateway()?;
-        Ok(gateway.minChallengerReward().call().await?)
+        Ok(gateway.minChallengerReward().call().await?.try_into()?)
     }
 
     async fn gateway_get_min_disprover_reward(&self) -> anyhow::Result<u64> {
         let gateway = self.get_gateway()?;
-        Ok(gateway.minDisproverReward().call().await?)
+        Ok(gateway.minDisproverReward().call().await?.try_into()?)
     }
 
     async fn gateway_get_min_slash_amount(&self) -> anyhow::Result<u64> {
         let gateway = self.get_gateway()?;
-        Ok(gateway.minSlashAmount().call().await?)
+        Ok(gateway.minSlashAmount().call().await?.try_into()?)
     }
 
     async fn gateway_get_committee_management(&self) -> anyhow::Result<[u8; 20]> {
@@ -1135,29 +1181,14 @@ impl ChainAdaptor for GoatAdaptor {
     }
 
     async fn gateway_get_initialized_ids(&self) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-        let gateway = self.get_gateway()?;
-        let ids = gateway.getInitializedInstanceIds().call().await?;
-        let instance_ids: Vec<Uuid> =
-            ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        let graph_ids: Vec<Uuid> =
-            ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        Ok(instance_ids.into_iter().zip(graph_ids).collect())
+        bail!("Gateway.getInitializedInstanceIds is not available in the gc contract interface")
     }
 
     async fn gateway_get_instanceids_by_pubkey(
         &self,
-        operator_pubkey: &[u8; 32],
+        _operator_pubkey: &[u8; 32],
     ) -> anyhow::Result<Vec<(Uuid, Uuid)>> {
-        let gateway = self.get_gateway()?;
-        let ids = gateway
-            .getInstanceIdsByPubKey(FixedBytes::<32>::from_slice(operator_pubkey))
-            .call()
-            .await?;
-        let instance_ids: Vec<Uuid> =
-            ids.retInstanceIds.iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        let graph_ids: Vec<Uuid> =
-            ids.retGraphIds.into_iter().map(|v| Uuid::from_bytes(v.0)).collect();
-        Ok(instance_ids.into_iter().zip(graph_ids).collect())
+        bail!("Gateway.getInstanceIdsByPubKey is not available in the gc contract interface")
     }
 
     async fn gateway_init_withdraw(
@@ -1175,10 +1206,16 @@ impl ChainAdaptor for GoatAdaptor {
         Ok(tx_hash.to_string())
     }
 
-    async fn gateway_cancel_withdraw(&self, graph_id: &[u8; 16]) -> anyhow::Result<String> {
+    async fn gateway_cancel_withdraw(
+        &self,
+        graph_id: &[u8; 16],
+        nonce: U256,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
         let gateway = self.get_gateway()?;
+        let signs: Vec<Bytes> = committee_signs.iter().map(|v| Bytes::copy_from_slice(v)).collect();
         let tx_request = gateway
-            .cancelWithdraw(FixedBytes::from_slice(graph_id))
+            .committeeCancelWithdraw(FixedBytes::from_slice(graph_id), nonce, signs)
             .from(self.get_default_signer_address())
             .chain_id(self.chain_id)
             .into_transaction_request();
@@ -1530,6 +1567,22 @@ impl ChainAdaptor for GoatAdaptor {
             .collect::<Vec<[u8; 32]>>())
     }
 
+    async fn committee_mana_get_verifiers(&self) -> anyhow::Result<Vec<Vec<u8>>> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management
+            .getVerifiers()
+            .call()
+            .await?
+            .into_iter()
+            .map(|v| v.to_vec())
+            .collect::<Vec<Vec<u8>>>())
+    }
+
+    async fn committee_mana_is_verifier(&self, peer_id: &[u8]) -> anyhow::Result<bool> {
+        let committee_management = self.get_committee_management()?;
+        Ok(committee_management.isVerifier(Bytes::copy_from_slice(peer_id)).call().await?)
+    }
+
     async fn committee_mana_add_watchtower(
         &self,
         watchtower: &[u8; 32],
@@ -1567,6 +1620,11 @@ impl ChainAdaptor for GoatAdaptor {
     async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         let peg_btc = self.get_peg_btc()?;
         Ok(peg_btc.balanceOf(Address::from_slice(address)).call().await?)
+    }
+
+    async fn peg_btc_decimals(&self) -> anyhow::Result<u8> {
+        let peg_btc = self.get_peg_btc()?;
+        Ok(peg_btc.decimals().call().await?)
     }
 
     async fn peg_btc_allowance(

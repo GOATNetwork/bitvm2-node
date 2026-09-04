@@ -40,6 +40,10 @@ impl EvmChain {
         self.adaptor.get_latest_block_number().await
     }
 
+    pub async fn native_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
+        self.adaptor.native_balance(address).await
+    }
+
     pub async fn gateway_get_response_window_blocks(&self) -> anyhow::Result<u64> {
         self.adaptor.gateway_get_response_window_blocks().await
     }
@@ -186,8 +190,13 @@ impl EvmChain {
         self.adaptor.gateway_init_withdraw(instance_id.as_bytes(), graph_id.as_bytes()).await
     }
 
-    pub async fn gateway_cancel_withdraw(&self, graph_id: &Uuid) -> anyhow::Result<String> {
-        self.adaptor.gateway_cancel_withdraw(graph_id.as_bytes()).await
+    pub async fn gateway_cancel_withdraw(
+        &self,
+        graph_id: &Uuid,
+        nonce: U256,
+        committee_signs: &[Vec<u8>],
+    ) -> anyhow::Result<String> {
+        self.adaptor.gateway_cancel_withdraw(graph_id.as_bytes(), nonce, committee_signs).await
     }
 
     pub async fn gateway_process_withdraw(
@@ -423,6 +432,15 @@ impl EvmChain {
     pub async fn committee_mana_get_watchtowers(&self) -> anyhow::Result<Vec<[u8; 32]>> {
         self.adaptor.committee_mana_get_watchtowers().await
     }
+
+    pub async fn committee_mana_get_verifiers(&self) -> anyhow::Result<Vec<Vec<u8>>> {
+        self.adaptor.committee_mana_get_verifiers().await
+    }
+
+    pub async fn committee_mana_is_verifier(&self, peer_id: &[u8]) -> anyhow::Result<bool> {
+        self.adaptor.committee_mana_is_verifier(peer_id).await
+    }
+
     pub async fn committee_mana_add_watchtower(
         &self,
         watchtower: &[u8; 32],
@@ -445,6 +463,10 @@ impl EvmChain {
 
     pub async fn peg_btc_balance(&self, address: &[u8; 20]) -> anyhow::Result<U256> {
         self.adaptor.peg_btc_balance(address).await
+    }
+
+    pub async fn peg_btc_decimals(&self) -> anyhow::Result<u8> {
+        self.adaptor.peg_btc_decimals().await
     }
 
     pub async fn peg_btc_allowance(

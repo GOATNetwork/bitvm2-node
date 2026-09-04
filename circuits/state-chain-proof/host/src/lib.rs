@@ -17,8 +17,8 @@ use state_chain::*;
 use std::sync::Arc;
 use url::Url;
 use zkm_sdk::{
-    HashableKey, Prover, ProverClient, ZKMProofKind, ZKMProofWithPublicValues, ZKMStdin,
-    include_elf,
+    HashableKey, Prover, ProverClient, ZKM_CIRCUIT_VERSION, ZKMProofKind, ZKMProofWithPublicValues,
+    ZKMStdin, include_elf,
 };
 
 use sha2::{Digest, Sha256};
@@ -32,9 +32,14 @@ const STATE_CHAIN: &[u8] = include_elf!("guest");
 use std::fs;
 
 use clap::Parser;
+
 /// The arguments for the cli.
 #[derive(Debug, Clone, Parser, serde::Deserialize, serde::Serialize)]
 pub struct Args {
+    #[arg(long, default_value_t = false)]
+    #[serde(default)]
+    pub print_program_id: bool,
+
     #[arg(long, default_value_t = true)]
     pub enable: bool,
 
@@ -65,11 +70,24 @@ pub struct Args {
     #[clap(long, env, default_value_t = 0)]
     pub start: u64,
 
-    #[clap(long, env)]
+    // Print-only mode skips runtime inputs but keeps them required otherwise.
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub l2_contract_addresses: String,
 
     // https://explorer.testnet3.goat.network/address/0x9F0A61ce47678F43A326dB9F8964C56a924cd3D0?tab=read_write_contract
-    #[clap(long, env)]
+    #[clap(
+        long,
+        env,
+        required = false,
+        required_unless_present = "print_program_id",
+        default_value_if("print_program_id", "true", Some(""))
+    )]
     pub proceed_withdraw_method_ids: String,
 }
 
@@ -97,7 +115,7 @@ async fn fetch_withdrawal_events(
     start: u64,
     batch_size: u64,
 ) -> anyhow::Result<Vec<(u64, [u8; 16], Address)>> {
-    let rpc_url = Url::parse(&execution_layer_rpc)?;
+    let rpc_url = Url::parse(execution_layer_rpc)?;
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
     let mut withdrawals = vec![];
     for i in start..start + batch_size {
@@ -149,7 +167,7 @@ async fn fetch_exection_layer_block(
     genesis: &Genesis,
 ) -> anyhow::Result<EthClientExecutorInput> {
     // Setup the provider.
-    let rpc_url = Url::parse(&execution_layer_rpc)?;
+    let rpc_url = Url::parse(execution_layer_rpc)?;
     let provider = RootProvider::<Ethereum>::new_http(rpc_url);
     //let rpc_db = RpcDb::new(provider.clone(), provider.clone(), execution_layer_block_number - 1);
     let chain_spec: Arc<ChainSpec> = Arc::new(genesis.try_into().unwrap());
@@ -169,6 +187,7 @@ async fn fetch_exection_layer_block(
     Ok(client_input)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_state_chain(
     l2_contract_addresses: &str,
     proceed_withdraw_method_ids: &str,
@@ -193,7 +212,7 @@ pub async fn fetch_state_chain(
     let genesis = if genesis == "goattest" { Genesis::GoatTestnet } else { Genesis::GOAT };
     assert!(start > 0, "Don't get genesis block from the consensus layer.");
     let mut blocks: Vec<_> = Vec::new();
-    let base_slot: [u8; 32] = U256::from(16).to_be_bytes().try_into()?;
+    let base_slot: [u8; 32] = U256::from(16).to_be_bytes();
     // fetch graph_block_numbers and graph_ids between in goat block(start, start + batch_size)
     let withdrawal_events = fetch_withdrawal_events(
         execution_layer_rpc,
@@ -206,7 +225,7 @@ pub async fn fetch_state_chain(
 
     for i in start..(start + batch_size) {
         let evm_block =
-            fetch_exection_layer_block(&execution_layer_rpc, i, &genesis).await.map_err(|e| {
+            fetch_exection_layer_block(execution_layer_rpc, i, &genesis).await.map_err(|e| {
                 tracing::error!("fetch_exection_layer_block: {e:?}");
                 proof_builder::ProofError::InputNotReady((batch_size + start - i) * 3)
             })?;
@@ -215,10 +234,9 @@ pub async fn fetch_state_chain(
             evm_block.current_block.header.parent_beacon_block_root.unwrap();
 
         let parent_cosmos_block_height =
-            match get_cosmos_block_height_at(cosmos_rpc_url, *parent_beacon_block_root).await {
-                Ok(d) => d,
-                Err(_) => None,
-            };
+            get_cosmos_block_height_at(cosmos_rpc_url, *parent_beacon_block_root)
+                .await
+                .unwrap_or_default();
 
         let (_, cl_block_number) =
             fetch_cbft_validator_info(cosmos_rpc_url, i, parent_cosmos_block_height, 1000)
@@ -264,7 +282,7 @@ pub async fn fetch_state_chain(
         blocks.push(CircuitStateBlock { cosmos_txns, cosmos_block, evm_block, withdrawals });
     }
     let block_bytes = serde_json::to_vec(&blocks)?;
-    std::fs::write(&blocks_file, block_bytes)?;
+    std::fs::write(blocks_file, block_bytes)?;
     Ok(blocks)
 }
 
@@ -275,6 +293,7 @@ pub struct StateChainProofBuilder {
 }
 
 impl StateChainProofBuilder {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let client = ProverClient::new();
         let (proving_key, verifying_key) = client.setup(STATE_CHAIN);
@@ -312,34 +331,49 @@ impl ProofBuilder for StateChainProofBuilder {
         let prev_receipt = if *init_input {
             None
         } else {
-            let public_inputs = fs::read(&format!("{}.public_inputs.bin", input_proof))
+            let public_inputs = fs::read(format!("{}.public_inputs.bin", input_proof))
                 .context("Read public input")?;
             Some(public_inputs)
         };
 
-        let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash) = match prev_receipt.clone() {
-            Some(public_inputs) => {
-                let proof_bytes =
-                    fs::read(input_proof).context("Failed to read input proof file")?;
-                let zkm_vk_hash =
-                    fs::read(&format!("{}.vk_hash.bin", input_proof)).context("Read vk_hash")?;
-                let prev_output: StateChainCircuitOutput =
-                    zkm_sdk::ZKMPublicValues::from(&public_inputs).read();
-                (
-                    StateChainPrevProofType::PrevProof(prev_output),
-                    proof_bytes,
-                    public_inputs,
-                    zkm_vk_hash.to_vec(),
-                )
-            }
-            None => (StateChainPrevProofType::GenesisBlock, Vec::new(), Vec::new(), Vec::new()),
-        };
+        let self_program_id = self.program_id()?;
+        let (prev_proof, zkm_proof, zkm_public_values, zkm_vk_hash, zkm_version) =
+            match prev_receipt.clone() {
+                Some(public_inputs) => {
+                    let proof_bytes =
+                        fs::read(input_proof).context("Failed to read input proof file")?;
+                    let zkm_vk_hash =
+                        fs::read(format!("{}.vk_hash.bin", input_proof)).context("Read vk_hash")?;
+                    let version_path = format!("{input_proof}.zkm_version.bin");
+                    let zkm_version = fs::read(&version_path)
+                        .with_context(|| {
+                            format!("failed to read zkm_version file '{version_path}'")
+                        })
+                        .and_then(|raw_zkm_version| {
+                            String::from_utf8(raw_zkm_version).with_context(|| {
+                                format!("invalid UTF-8 in zkm_version file '{version_path}'")
+                            })
+                        })?;
+                    let prev_proof =
+                        classify_state_chain_output(&public_inputs).map_err(anyhow::Error::msg)?;
+                    (prev_proof, proof_bytes, public_inputs, zkm_vk_hash.to_vec(), zkm_version)
+                }
+                None => (
+                    StateChainPrevProofType::GenesisBlock,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    ZKM_CIRCUIT_VERSION.into(),
+                ),
+            };
 
         let input: StateChainCircuitInput = StateChainCircuitInput {
             prev_proof,
             zkm_proof,
             zkm_public_values,
             zkm_vk_hash,
+            zkm_version,
+            self_program_id,
             blocks: blocks.clone(),
         };
         // Generate the proofs.
@@ -369,9 +403,10 @@ impl ProofBuilder for StateChainProofBuilder {
             },
         )?;
         tracing::info!("State chain proof cycles: {}", cycles);
-        if let Err(e) = self.client.verify(&proof, &self.verifying_key) {
-            panic!("{}", e);
-        }
+
+        self.client
+            .verify(&proof, &self.verifying_key)
+            .context("Failed to verify generated state chain proof")?;
 
         let input = bincode::serialize(&input)?;
         Ok((input, proof, cycles, proving_time))
@@ -387,14 +422,16 @@ impl ProofBuilder for StateChainProofBuilder {
         let ProofRequest::StateChainProofRequest { output_proof, .. } = ctx else {
             anyhow::bail!("Invalid state chain inputs");
         };
-        std::fs::write(&format!("{}", output_proof), proof.bytes())?;
+        std::fs::write(output_proof, proof.bytes())?;
         let public_value_hex = hex::encode(proof.public_values.to_vec());
         let proof_size = proof.bytes().len();
+        let zkm_version = proof.zkm_version.clone();
         std::fs::write(
-            &format!("{}.public_inputs.bin", output_proof),
+            format!("{}.public_inputs.bin", output_proof),
             proof.public_values.to_vec(),
         )?;
-        std::fs::write(&format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.vk_hash.bin", output_proof), self.verifying_key.bytes32())?;
+        std::fs::write(format!("{}.zkm_version.bin", output_proof), zkm_version)?;
 
         tracing::info!("Generate proof successfully, proof: {:?}", proof);
         Ok((public_value_hex, proof_size))

@@ -1,7 +1,10 @@
-use crate::action::{ConfirmInstance, GOATMessageContent, PeginRequest, PostReady};
+use crate::action::{
+    ConfirmInstance, GOATMessage, GOATMessageContent, MessageDeferReason, PeginConfirmNonce,
+    PeginConfirmPartialSig, PeginRequest, PostReady, push_local_unhandled_messages_with_reason,
+};
 use crate::env::{
-    COMMITTEE_INSTANCE_KEYS_DIR, INSTANCE_PRESIGNED_TIME_EXPIRED, get_bitvm_key,
-    get_committee_instance_key_delete_timelock_blocks, get_instance_maintenance_batch_size,
+    COMMITTEE_INSTANCE_KEYS_DIR, get_bitvm_key, get_committee_instance_key_delete_timelock_blocks,
+    get_instance_maintenance_batch_size, get_instance_presigned_time_expired_secs,
     is_enable_committee_instance_key_delete,
 };
 use crate::rpc_service::current_time_secs;
@@ -10,13 +13,15 @@ use crate::scheduled_tasks::get_timestamp_from_contract_data;
 use crate::utils::evm_swap_utils::IEscrowManager::EscrowData;
 use crate::utils::{
     SELF_SENDER, check_bridge_in_uxto_available_or_self_spent, gen_instance_parameters_local,
-    upsert_message,
+    get_committee_endorse_sigs_for_pegin, get_committee_partial_sig_for_instance,
+    get_committee_pub_nonce_for_instance, load_committee_instance_keypair,
+    store_committee_pub_nonce_for_instance, upsert_message,
 };
 use alloy::sol_types::SolType;
-use bitvm2_lib::actors::Actor;
-use bitvm2_lib::constants::CONNECTOR_Z_TIMELOCK;
-use bitvm2_lib::keys::CommitteeMasterKey;
-use bitvm2_lib::transactions::base::BaseTransaction;
+use bitvm_lib::actors::Actor;
+use bitvm_lib::keys::CommitteeMasterKey;
+use bitvm_lib::timelocks::default_connector_z_timelock_blocks;
+use bitvm_lib::transactions::base::BaseTransaction;
 use client::Utxo;
 use client::btc_chain::BTCClient;
 use client::goat_chain::GOATClient;
@@ -38,6 +43,7 @@ const TASK_KEY_INSTANCE_WINDOW_EXPIRATION: &str = "instance_window_expiration_mo
 const TASK_KEY_INSTANCE_EXPIRATION: &str = "instance_expiration_monitor";
 const TASK_KEY_INSTANCE_BTC_TX: &str = "instance_btc_tx_monitor";
 const TASK_KEY_INSTANCE_BRIDGE_OUT: &str = "instance_bridge_out_monitor";
+const TASK_KEY_PEGIN_CONFIRM_RECOVERY: &str = "pegin_confirm_recovery_monitor";
 
 #[derive(Clone, Debug)]
 struct InstancePageState {
@@ -112,14 +118,12 @@ async fn update_instance<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     params: &InstanceUpdate,
 ) -> anyhow::Result<()> {
-    if let Err(err) = storage_processor.update_instance(params).await {
-        warn!(
-            "update_instance_status with input: {:?} failed {}, will try later",
-            params,
-            err.to_string()
-        );
-    } else {
-        info!("update instance with input: {:?}", params);
+    match storage_processor.update_instance(params).await {
+        Ok(true) => info!("update instance with input: {:?}", params),
+        Ok(false) => info!("skip stale instance update with input: {:?}", params),
+        Err(err) => {
+            warn!("update_instance_status with input: {:?} failed {}, will try later", params, err);
+        }
     }
     Ok(())
 }
@@ -143,10 +147,14 @@ pub async fn instance_answers_monitor(
     let current_height = goat_client.get_finalized_block_number().await?;
     let response_window_blocks = goat_client.gateway_get_response_window_blocks().await? as i64;
     for tx_record in tx_records {
-        let mut tx = local_db.start_transaction().await?;
-        if let Some(event) = tx_record.extra {
-            let event: BridgeInRequestEvent = serde_json::from_str(&event)?;
-            if tx_record.height + response_window_blocks < current_height {
+        let event = tx_record
+            .extra
+            .as_deref()
+            .map(serde_json::from_str::<BridgeInRequestEvent>)
+            .transpose()?;
+        let is_outside_response_window = tx_record.height + response_window_blocks < current_height;
+        let discarded_instance = if is_outside_response_window {
+            if let Some(event) = event.as_ref() {
                 info!(
                     "instance_answers_monitor: instance_id:{} BridgeInRequest is outside the response window",
                     tx_record.instance_id
@@ -156,7 +164,7 @@ pub async fn instance_answers_monitor(
                     generate_instance_from_bridge_in_request_event(
                         btc_client,
                         goat_client,
-                        &event,
+                        event,
                         true,
                     )
                     .await
@@ -169,6 +177,21 @@ pub async fn instance_answers_monitor(
                     // for the case: if bridgeIn confirm is broadcast,but L2 not minted,
                     // instance status will been updated to L2Minted when normal finished
                     instance.status = InstanceBridgeInStatus::UserDiscarded.to_string();
+                    Some(instance)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut tx = local_db.start_transaction().await?;
+        if let Some(event) = event {
+            if is_outside_response_window {
+                if let Some(instance) = discarded_instance {
                     tx.upsert_instance(&instance).await?;
                 }
             } else {
@@ -227,44 +250,77 @@ pub async fn instance_window_expiration_monitor(
     .await?;
 
     let committee_quorum_size = goat_client.committee_mana_quorum_size().await?;
-    for mut instance in instances {
-        match goat_client.gateway_get_pegin_data(&instance.instance_id).await {
-            Ok(pegin_data) => {
-                for (committee_addr, pubkey) in
-                    pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
-                {
-                    instance.committees_answers.insert(committee_addr.to_string(), pubkey);
-                }
-
-                if committee_quorum_size <= instance.committees_answers.len() as u64 {
-                    instance.status = InstanceBridgeInStatus::CommitteesAnswered.to_string();
-                    if let Err(err) = update_pegin_txids(&mut instance) {
-                        warn!(
-                            "instance_window_expiration_monitor fail to update_pegin_txids for instance {}, err: {:?}",
-                            instance.instance_id, err
-                        );
-                    }
-                } else {
-                    instance.status =
-                        InstanceBridgeInStatus::NoEnoughCommitteesAnswered.to_string();
-                }
-                let mut storage_processor = local_db.acquire().await?;
-                if let Err(err) = storage_processor.upsert_instance(&instance).await {
-                    warn!(
-                        "failed to upsert instance {}, err: {}",
-                        instance.instance_id,
-                        err.to_string()
-                    );
-                }
-            }
+    for snapshot in instances {
+        let pegin_data = match goat_client.gateway_get_pegin_data(&snapshot.instance_id).await {
+            Ok(pegin_data) => pegin_data,
             Err(err) => {
                 warn!(
                     "failed to get pegin data for instance {}, err: {}",
-                    instance.instance_id,
-                    err.to_string()
+                    snapshot.instance_id, err
+                );
+                continue;
+            }
+        };
+
+        // The RPC call above can take arbitrarily long. Re-read while holding
+        // SQLite's write lock, then make the decision and its update in the
+        // same short transaction so a late committee response cannot be
+        // overwritten by the stale page snapshot.
+        let mut storage_processor = local_db.start_immediate_transaction().await?;
+        let Some(mut instance) = storage_processor.find_instance(&snapshot.instance_id).await?
+        else {
+            storage_processor.commit().await?;
+            continue;
+        };
+        if instance.status != InstanceBridgeInStatus::UserInited.to_string() {
+            info!(
+                "skip expired response-window reconciliation for instance {} in status {}",
+                instance.instance_id, instance.status
+            );
+            storage_processor.commit().await?;
+            continue;
+        }
+
+        for (committee_addr, pubkey) in
+            pegin_data.committee_addresses.iter().zip(pegin_data.committee_pubkeys)
+        {
+            instance.committees_answers.insert(committee_addr.to_string(), pubkey);
+        }
+
+        let reached_quorum = committee_quorum_size <= instance.committees_answers.len() as u64;
+        let next_status = if reached_quorum {
+            if let Err(err) = update_pegin_txids(&mut instance) {
+                warn!(
+                    "instance_window_expiration_monitor failed to update pegin txids for instance {}, err: {err:?}",
+                    instance.instance_id
                 );
             }
+            InstanceBridgeInStatus::CommitteesAnswered
+        } else {
+            InstanceBridgeInStatus::NoEnoughCommitteesAnswered
+        };
+
+        let mut update = InstanceUpdate::new_with_instance_id(instance.instance_id)
+            .with_status(next_status.to_string())
+            .with_committees_answers(instance.committees_answers.clone())
+            .with_only_if_status_in(vec![InstanceBridgeInStatus::UserInited.to_string()])
+            .with_only_if_is_bridge_in(true);
+        if reached_quorum {
+            if let Some(btc_txid) = instance.btc_txid.clone() {
+                update = update.with_btc_txid(btc_txid);
+            }
+            if let Some(pegin_confirm_txid) = instance.pegin_confirm_txid.clone() {
+                update = update.with_pegin_confirm_txid(pegin_confirm_txid);
+            }
+            if let Some(pegin_cancel_txid) = instance.pegin_cancel_txid.clone() {
+                update = update.with_pegin_cancel_txid(pegin_cancel_txid);
+            }
         }
+
+        if !storage_processor.update_instance(&update).await? {
+            warn!("skip stale response-window update for instance {}", instance.instance_id);
+        }
+        storage_processor.commit().await?;
     }
 
     Ok(())
@@ -293,7 +349,7 @@ pub async fn instance_expiration_monitor(
             .update_expired_instance(
                 &InstanceBridgeInStatus::UserBroadcastPeginPrepare.to_string(),
                 &InstanceBridgeInStatus::PresignedFailed.to_string(),
-                current_time - INSTANCE_PRESIGNED_TIME_EXPIRED,
+                current_time - get_instance_presigned_time_expired_secs(),
             )
             .await?;
         info!("Presigned expired instances is {expired_num}");
@@ -310,7 +366,7 @@ pub async fn instance_expiration_monitor(
         .await?
     };
 
-    let lock_height = CONNECTOR_Z_TIMELOCK as i64;
+    let lock_height = default_connector_z_timelock_blocks(btc_client.network()) as i64;
     let mut storage_processor = local_db.acquire().await?;
     for instance in instances {
         if instance.btc_height > 0 && current_height > instance.btc_height + lock_height {
@@ -457,6 +513,161 @@ pub async fn instance_btc_tx_monitor(
     Ok(())
 }
 
+/// Re-publish persisted PeginConfirm signing material until the transaction is visible on Bitcoin.
+/// This never derives a new partial signature: it only reuses the deterministic nonce or stored signature.
+pub async fn pegin_confirm_recovery_monitor(
+    local_db: &LocalDB,
+    btc_client: &BTCClient,
+    actor: &Actor,
+) -> anyhow::Result<()> {
+    if actor != &Actor::Committee {
+        return Ok(());
+    }
+
+    let instances = find_one_instance_page(
+        local_db,
+        TASK_KEY_PEGIN_CONFIRM_RECOVERY,
+        InstanceQuery::default()
+            .with_is_bridge_in(true)
+            .with_status(InstanceBridgeInStatus::Presigned.to_string()),
+        get_instance_maintenance_batch_size(),
+    )
+    .await?;
+    if instances.is_empty() {
+        return Ok(());
+    }
+
+    let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
+    for instance in instances {
+        let Some(pegin_confirm_txid) = instance.pegin_confirm_txid.clone() else {
+            warn!(
+                instance_id = %instance.instance_id,
+                "skip PeginConfirm recovery: instance has no expected PeginConfirm txid"
+            );
+            continue;
+        };
+        match btc_client.get_tx(&pegin_confirm_txid.0).await {
+            Ok(Some(_)) => continue,
+            Ok(None) => {}
+            Err(error) => {
+                warn!(
+                    instance_id = %instance.instance_id,
+                    error = %error,
+                    "defer PeginConfirm recovery: unable to query Bitcoin transaction"
+                );
+                continue;
+            }
+        }
+
+        let instance_id = instance.instance_id;
+        let instance_parameters = gen_instance_parameters_local(&instance)?;
+        let instance_keypair = load_committee_instance_keypair(&committee_master_key, instance_id)?;
+        let local_committee_pubkey = instance_keypair.public_key().into();
+
+        if let Some(partial_sig) =
+            get_committee_partial_sig_for_instance(local_db, instance_id, &local_committee_pubkey)
+                .await?
+        {
+            let Some((_, endorse_sig)) =
+                get_committee_endorse_sigs_for_pegin(local_db, instance_id)
+                    .await?
+                    .into_iter()
+                    .find(|(pubkey, _)| *pubkey == local_committee_pubkey)
+            else {
+                warn!(
+                    instance_id = %instance_id,
+                    "skip PeginConfirm partial signature recovery: local endorsement signature is missing"
+                );
+                continue;
+            };
+            let message = GOATMessage::new(
+                Actor::Committee,
+                GOATMessageContent::PeginConfirmPartialSig(PeginConfirmPartialSig {
+                    instance_id,
+                    committee_pubkey: local_committee_pubkey,
+                    partial_sig,
+                    endorse_sig,
+                }),
+            );
+            push_local_unhandled_messages_with_reason(
+                local_db,
+                instance_id,
+                &message,
+                0,
+                MessageDeferReason::RecoveryRepublish,
+                "re-publishing persisted pegin-confirm partial signature",
+            )
+            .await?;
+            tracing::info!(
+                event = "pegin_confirm_recovery",
+                action = "republish_partial_signature",
+                instance_id = %instance_id,
+                "queued persisted PeginConfirm partial signature for re-publication"
+            );
+            continue;
+        }
+
+        let instance_parameters_hash = instance_parameters.parameters_hash()?;
+        let (_, derived_pub_nonce, nonce_sig) = committee_master_key
+            .nonce_for_instance_job_with_keypair(
+                instance_id,
+                instance_parameters_hash,
+                instance_keypair,
+            );
+        let pub_nonce = match get_committee_pub_nonce_for_instance(
+            local_db,
+            instance_id,
+            &local_committee_pubkey,
+        )
+        .await?
+        {
+            Some(stored_pub_nonce) => {
+                if stored_pub_nonce != derived_pub_nonce {
+                    anyhow::bail!(
+                        "stored PeginConfirm nonce differs from deterministic nonce for instance {instance_id}"
+                    );
+                }
+                stored_pub_nonce
+            }
+            None => {
+                store_committee_pub_nonce_for_instance(
+                    local_db,
+                    instance_id,
+                    local_committee_pubkey,
+                    derived_pub_nonce.clone(),
+                )
+                .await?;
+                derived_pub_nonce
+            }
+        };
+        let message = GOATMessage::new(
+            Actor::Committee,
+            GOATMessageContent::PeginConfirmNonce(PeginConfirmNonce {
+                instance_id,
+                committee_pubkey: local_committee_pubkey,
+                pub_nonce,
+                nonce_sig,
+            }),
+        );
+        push_local_unhandled_messages_with_reason(
+            local_db,
+            instance_id,
+            &message,
+            0,
+            MessageDeferReason::RecoveryRepublish,
+            "re-publishing persisted pegin-confirm nonce",
+        )
+        .await?;
+        tracing::info!(
+            event = "pegin_confirm_recovery",
+            action = "republish_nonce",
+            instance_id = %instance_id,
+            "queued persisted PeginConfirm nonce for re-publication"
+        );
+    }
+    Ok(())
+}
+
 pub async fn get_bridge_out_deadline<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     instance_id: &Uuid,
@@ -494,7 +705,9 @@ pub async fn instance_bridge_out_monitor(local_db: &LocalDB) -> anyhow::Result<(
     .await?;
     let mut storage_processor = local_db.acquire().await?;
     for instance in instances {
-        let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id);
+        let mut instance_update = InstanceUpdate::new_with_instance_id(instance.instance_id)
+            .with_only_if_status_in(vec![InstanceBridgeOutStatus::Initialize.to_string()])
+            .with_only_if_is_bridge_in(false);
         let lock_time = if instance.bridge_out_lock_time == 0 {
             let lock_time =
                 get_bridge_out_deadline(&mut storage_processor, &instance.instance_id).await?;
