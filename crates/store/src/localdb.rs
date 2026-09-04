@@ -1159,6 +1159,99 @@ impl<'a> StorageProcessor<'a> {
         Ok(res.rows_affected() > 0)
     }
 
+    /// Create a bridge-in instance from a pegin request, or refresh one that
+    /// has not moved past the pegin-request stage yet.
+    ///
+    /// `PeginRequest` is a re-deliverable P2P message, so `upsert_instance` is
+    /// unsafe here: its `INSERT OR REPLACE` lets a replayed or forged request
+    /// roll a live instance back to its initial row and clear everything the
+    /// later stages wrote. The write is therefore a compare-and-swap over the
+    /// current status, and it only touches the columns a pegin request owns:
+    /// committee answers, instance parameters and the BTC-side fields are never
+    /// overwritten. The caller is responsible for passing canonical request
+    /// metadata - `goat_tx_hash`/`goat_tx_height` are refreshed from it, so that
+    /// a re-indexed event can still correct them.
+    ///
+    /// Returns:
+    /// - Ok(true) if the row was inserted or updated
+    /// - Ok(false) if an existing row was left untouched because it is not a
+    ///   bridge-in instance, or its status is outside `allowed_statuses`
+    pub async fn upsert_pegin_request_instance(
+        &mut self,
+        instance: &Instance,
+        allowed_statuses: &[String],
+    ) -> anyhow::Result<bool> {
+        let committees_answers_json = serde_json::to_string(&instance.committees_answers)?;
+        // An empty allow-list must reject the update rather than silently
+        // dropping the compare-and-swap guard.
+        let status_guard = if allowed_statuses.is_empty() {
+            "1 = 0".to_string()
+        } else {
+            let placeholders = allowed_statuses.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            format!("instance.status IN ({placeholders})")
+        };
+        let sql = format!(
+            "INSERT INTO instance \
+             (instance_id, is_bridge_in, network, from_addr, to_addr, amount, fees, input_utxos, \
+              status, goat_tx_hash, goat_tx_height, user_xonly_pubkey, user_change_addr, \
+              user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers, \
+              pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, \
+              bridge_out_lock_time, post_pegin_txhash, bridge_out_amount, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(instance_id) DO UPDATE SET \
+               network = excluded.network, \
+               from_addr = CASE WHEN excluded.from_addr = '' \
+                   THEN instance.from_addr ELSE excluded.from_addr END, \
+               to_addr = excluded.to_addr, \
+               amount = excluded.amount, \
+               fees = excluded.fees, \
+               input_utxos = excluded.input_utxos, \
+               status = excluded.status, \
+               goat_tx_hash = excluded.goat_tx_hash, \
+               goat_tx_height = excluded.goat_tx_height, \
+               user_xonly_pubkey = excluded.user_xonly_pubkey, \
+               user_change_addr = excluded.user_change_addr, \
+               user_refund_addr = excluded.user_refund_addr, \
+               status_updated_at = excluded.status_updated_at, \
+               updated_at = excluded.updated_at \
+             WHERE instance.is_bridge_in = excluded.is_bridge_in AND {status_guard}"
+        );
+        let mut query = sqlx::query(&sql)
+            .bind(instance.instance_id)
+            .bind(instance.is_bridge_in)
+            .bind(&instance.network)
+            .bind(&instance.from_addr)
+            .bind(&instance.to_addr)
+            .bind(instance.amount)
+            .bind(instance.fees)
+            .bind(&instance.input_utxos)
+            .bind(&instance.status)
+            .bind(&instance.goat_tx_hash)
+            .bind(instance.goat_tx_height)
+            .bind(instance.user_xonly_pubkey)
+            .bind(&instance.user_change_addr)
+            .bind(&instance.user_refund_addr)
+            .bind(&instance.btc_txid)
+            .bind(&instance.pegin_confirm_txid)
+            .bind(&instance.pegin_cancel_txid)
+            .bind(committees_answers_json)
+            .bind(&instance.pegin_data_tx_hash)
+            .bind(instance.btc_height)
+            .bind(&instance.parameters)
+            .bind(instance.status_updated_at)
+            .bind(&instance.escrow_hash)
+            .bind(instance.bridge_out_lock_time)
+            .bind(&instance.post_pegin_txhash)
+            .bind(&instance.bridge_out_amount)
+            .bind(instance.created_at)
+            .bind(instance.updated_at);
+        for status in allowed_statuses {
+            query = query.bind(status);
+        }
+        let res = query.execute(self.conn()).await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     /// Find a single instance by its ID
     ///
     /// Retrieves an instance from the database using its unique instance_id.
@@ -4397,6 +4490,132 @@ mod tests {
 
     async fn setup_db() -> LocalDB {
         create_local_db("sqlite::memory:").await
+    }
+
+    fn pegin_instance(instance_id: Uuid, status: &str) -> Instance {
+        Instance {
+            instance_id,
+            is_bridge_in: true,
+            network: "testnet".to_string(),
+            input_utxos: "[]".to_string(),
+            status: status.to_string(),
+            bridge_out_amount: "0".to_string(),
+            created_at: 100,
+            updated_at: 100,
+            ..Default::default()
+        }
+    }
+
+    fn pegin_request_statuses() -> Vec<String> {
+        vec![
+            crate::InstanceBridgeInStatus::UserIniting.to_string(),
+            crate::InstanceBridgeInStatus::UserInited.to_string(),
+        ]
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pegin_request_instance_initializes_and_promotes() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+        let instance_id = Uuid::new_v4();
+
+        let mut initing = pegin_instance(instance_id, "UserIniting");
+        initing.to_addr = "0xuser".to_string();
+        initing.from_addr = "bcrt1quser".to_string();
+        assert!(s.upsert_instance(&initing).await.unwrap());
+
+        let mut request = pegin_instance(instance_id, "UserInited");
+        request.to_addr = "0xuser".to_string();
+        request.amount = 10_000;
+        request.goat_tx_hash = "0xrequest".to_string();
+        request.goat_tx_height = 500;
+        request.status_updated_at = 200;
+        request.created_at = 999;
+        request.updated_at = 999;
+        assert!(
+            s.upsert_pegin_request_instance(&request, &pegin_request_statuses()).await.unwrap()
+        );
+
+        let stored = s.find_instance(&instance_id).await.unwrap().unwrap();
+        assert_eq!(stored.status, "UserInited");
+        assert_eq!(stored.amount, 10_000);
+        assert_eq!(stored.goat_tx_hash, "0xrequest");
+        assert_eq!(stored.goat_tx_height, 500);
+        assert_eq!(stored.status_updated_at, 200);
+        // An undecodable from_addr must not erase the one the request tag stored.
+        assert_eq!(stored.from_addr, "bcrt1quser");
+        // created_at belongs to whoever created the row.
+        assert_eq!(stored.created_at, 100);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pegin_request_instance_replay_keeps_accrued_state() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+        let instance_id = Uuid::new_v4();
+
+        let mut inited = pegin_instance(instance_id, "UserInited");
+        inited.goat_tx_hash = "0xrequest".to_string();
+        inited.goat_tx_height = 500;
+        inited.committees_answers = IndexMap::from([("0xcommittee".to_string(), vec![1u8, 2, 3])]);
+        inited.parameters = Some("{}".to_string());
+        assert!(s.upsert_instance(&inited).await.unwrap());
+
+        // A re-delivered request refreshes the row in place; everything the
+        // instance accrued after the request must survive it.
+        let mut replay = pegin_instance(instance_id, "UserInited");
+        replay.goat_tx_hash = "0xrequest".to_string();
+        replay.goat_tx_height = 500;
+        assert!(s.upsert_pegin_request_instance(&replay, &pegin_request_statuses()).await.unwrap());
+        let stored = s.find_instance(&instance_id).await.unwrap().unwrap();
+        assert_eq!(stored.committees_answers.get("0xcommittee"), Some(&vec![1u8, 2, 3]));
+        assert_eq!(stored.parameters, Some("{}".to_string()));
+        assert_eq!(stored.goat_tx_height, 500);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pegin_request_instance_rejects_regression() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+        let instance_id = Uuid::new_v4();
+
+        let mut minted = pegin_instance(instance_id, "RelayerL2Minted");
+        minted.goat_tx_hash = "0xrequest".to_string();
+        minted.goat_tx_height = 500;
+        minted.parameters = Some("{}".to_string());
+        minted.post_pegin_txhash = Some("0xmint".to_string());
+        assert!(s.upsert_instance(&minted).await.unwrap());
+
+        // Once the instance moves on, a re-delivered request may not pull it back.
+        let replay = pegin_instance(instance_id, "UserInited");
+        assert!(
+            !s.upsert_pegin_request_instance(&replay, &pegin_request_statuses()).await.unwrap()
+        );
+        let stored = s.find_instance(&instance_id).await.unwrap().unwrap();
+        assert_eq!(stored.status, "RelayerL2Minted");
+        assert_eq!(stored.parameters, Some("{}".to_string()));
+        assert_eq!(stored.post_pegin_txhash, Some("0xmint".to_string()));
+        assert_eq!(stored.goat_tx_height, 500);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pegin_request_instance_rejects_bridge_out_collision() {
+        let db = setup_db().await;
+        let mut s = db.acquire().await.unwrap();
+        let instance_id = Uuid::new_v4();
+
+        let mut bridge_out = pegin_instance(instance_id, "Initialize");
+        bridge_out.is_bridge_in = false;
+        bridge_out.escrow_hash = Some("0xescrow".to_string());
+        assert!(s.upsert_instance(&bridge_out).await.unwrap());
+
+        let request = pegin_instance(instance_id, "UserInited");
+        assert!(
+            !s.upsert_pegin_request_instance(&request, &pegin_request_statuses()).await.unwrap()
+        );
+        let stored = s.find_instance(&instance_id).await.unwrap().unwrap();
+        assert!(!stored.is_bridge_in);
+        assert_eq!(stored.status, "Initialize");
     }
 
     #[tokio::test]

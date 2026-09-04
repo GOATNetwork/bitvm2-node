@@ -35,6 +35,7 @@ use bitvm_lib::types::{
 };
 use bitvm_lib::verifier::*;
 use client::goat_chain::{DisproveTxType, PeginStatus, WithdrawStatus};
+use client::graphs::graph_query::BridgeInRequestEvent;
 use client::http_client::async_client::HttpAsyncClient;
 use client::{btc_chain::BTCClient, goat_chain::GOATClient};
 use goat::transactions::base::output_topology;
@@ -48,7 +49,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use store::localdb::LocalDB;
-use store::{GraphStatus, SerializableTxid};
+use store::{GoatTxType, GraphStatus, SerializableTxid};
 use uuid::Uuid;
 
 pub struct HandlerContext<'a> {
@@ -280,7 +281,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 instance_id,
                 pegin_request_tx_hash,
                 pegin_request_height,
-                pegin_timestamp,
+                ..
             }),
             Actor::Committee,
         ) => {
@@ -289,7 +290,6 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 *instance_id,
                 pegin_request_tx_hash,
                 *pegin_request_height,
-                *pegin_timestamp,
             )
             .await
         }
@@ -298,7 +298,7 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 instance_id,
                 pegin_request_tx_hash,
                 pegin_request_height,
-                pegin_timestamp,
+                ..
             }),
             _,
         ) => {
@@ -307,7 +307,6 @@ pub async fn dispatch(ctx: &mut HandlerContext<'_>, content: &GOATMessageContent
                 *instance_id,
                 pegin_request_tx_hash,
                 *pegin_request_height,
-                *pegin_timestamp,
             )
             .await
         }
@@ -1118,6 +1117,63 @@ fn validate_expected_challenge_assert_txid(
     Ok(())
 }
 
+/// Resolve the request metadata a `PeginRequest` carries from the canonical
+/// `BridgeInRequest` event this node indexed itself.
+///
+/// The message is gossiped, so its tx hash, height and timestamp are all
+/// sender-controlled, and the height alone decides
+/// whether the instance ever matches the response-window query in
+/// `instance_window_expiration_monitor`. The event watcher already stores the
+/// canonical request transaction in `goat_tx_record`, so take all three values
+/// from there and never from the message.
+///
+/// Returns `None` when the event watcher has not indexed the request yet. The
+/// current trigger is ignored in that case: once the watcher observes the
+/// event, `instance_answers_monitor` creates a canonical local `PeginRequest`.
+async fn resolve_pegin_request_metadata(
+    local_db: &LocalDB,
+    instance_id: Uuid,
+    pegin_request_tx_hash: &str,
+    pegin_request_height: i64,
+) -> Result<Option<(String, i64, i64)>> {
+    let tx_record = {
+        let mut storage_processor = local_db.acquire().await?;
+        storage_processor
+            .find_graph_goat_tx_record(
+                &instance_id,
+                &Uuid::nil(),
+                &GoatTxType::BridgeInRequest.to_string(),
+            )
+            .await?
+    };
+    let Some(tx_record) = tx_record else {
+        tracing::info!(
+            "Ignore PeginRequest for {instance_id}: no local BridgeInRequest event record yet; \
+             the event watcher will enqueue the canonical request"
+        );
+        return Ok(None);
+    };
+    if tx_record.tx_hash != pegin_request_tx_hash || tx_record.height != pegin_request_height {
+        // Not fatal - the canonical record wins either way - but a mismatch is
+        // the signature of a forged or stale request, so make it visible.
+        tracing::warn!(
+            "PeginRequest for {instance_id} claims tx {pegin_request_tx_hash} at height \
+             {pegin_request_height}, the indexed BridgeInRequest is tx {} at height {}",
+            tx_record.tx_hash,
+            tx_record.height
+        );
+    }
+    // The block timestamp comes from the same indexed event; fall back to now
+    // rather than to anything the sender supplied.
+    let timestamp = tx_record
+        .extra
+        .as_deref()
+        .and_then(|extra| serde_json::from_str::<BridgeInRequestEvent>(extra).ok())
+        .and_then(|event| event.block_timestamp.parse::<i64>().ok())
+        .unwrap_or_else(current_time_secs);
+    Ok(Some((tx_record.tx_hash, tx_record.height, timestamp)))
+}
+
 fn should_ignore_invalid_pegin_request(e: &anyhow::Error, instance_id: Uuid) -> bool {
     if let Some(SpecialError::InvalidPeginRequest(err_msg)) = e.downcast_ref::<SpecialError>() {
         tracing::warn!("Ignore PeginRequest for {instance_id}: {err_msg}");
@@ -1353,11 +1409,22 @@ async fn handle_pegin_request_committee(
     instance_id: Uuid,
     pegin_request_tx_hash: &str,
     pegin_request_height: i64,
-    pegin_timestamp: i64,
 ) -> Result<()> {
     // triggered by BridgeInRequest event
-    // 1. read & check the pegin request data
-    let (user_info, pegin_amount) =
+    // 1. bind the request metadata to the event this node indexed itself
+    let Some((pegin_request_tx_hash, pegin_request_height, pegin_timestamp)) =
+        resolve_pegin_request_metadata(
+            ctx.local_db,
+            instance_id,
+            pegin_request_tx_hash,
+            pegin_request_height,
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+    // 2. read & check the pegin request data
+    let (user_info, pegin_amount, answered_by) =
         match read_pegin_request(ctx.btc_client, ctx.goat_client, instance_id).await {
             Ok(v) => v,
             Err(e) => {
@@ -1368,21 +1435,39 @@ async fn handle_pegin_request_committee(
             }
         };
 
-    // 2. save the pegin request data to local db
-    store_pegin_request(
+    // 3. save the pegin request data to local db
+    let stored = store_pegin_request(
         ctx.btc_client,
         ctx.local_db,
         GenerateInstanceParams {
             instance_id,
             user_info,
             pegin_amount,
-            pegin_request_tx_hash: pegin_request_tx_hash.to_string(),
+            pegin_request_tx_hash,
             pegin_request_height,
             pegin_timestamp,
         },
     )
     .await?;
-    // 3. call Gateway.answerPeginRequest
+    if !stored {
+        // The instance has already moved on, so answering now would be a
+        // duplicate on-chain call for a request this node handled long ago.
+        return Ok(());
+    }
+    // 4. call Gateway.answerPeginRequest
+    //
+    // PeginRequest is gossiped and re-deliverable, and the pegin data stays
+    // Pending while answers accumulate, so nothing above notices a replay.
+    // Gateway.answerPeginRequest does not reject a repeat answer either - it
+    // overwrites the stored pubkey and re-emits CommitteeResponse - so without
+    // this every re-delivery spends another transaction. The contract keys
+    // answers on msg.sender, so compare against the signer that sends it.
+    if answered_by.contains(&ctx.goat_client.get_default_signer_address()) {
+        tracing::info!(
+            "Skip answerPeginRequest for {instance_id}: this committee already answered"
+        );
+        return Ok(());
+    }
     let committee_master_key = CommitteeMasterKey::new(get_bitvm_key()?);
     let instance_keypair =
         load_or_create_committee_instance_keypair(&committee_master_key, instance_id)?;
@@ -1397,11 +1482,22 @@ async fn handle_pegin_request_default(
     instance_id: Uuid,
     pegin_request_tx_hash: &str,
     pegin_request_height: i64,
-    pegin_timestamp: i64,
 ) -> Result<()> {
     // triggered by BridgeInRequest event
-    // 1. read & check the pegin request data
-    let (user_info, pegin_amount) =
+    // 1. bind the request metadata to the event this node indexed itself
+    let Some((pegin_request_tx_hash, pegin_request_height, pegin_timestamp)) =
+        resolve_pegin_request_metadata(
+            ctx.local_db,
+            instance_id,
+            pegin_request_tx_hash,
+            pegin_request_height,
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+    // 2. read & check the pegin request data
+    let (user_info, pegin_amount, _) =
         match read_pegin_request(ctx.btc_client, ctx.goat_client, instance_id).await {
             Ok(v) => v,
             Err(e) => {
@@ -1411,7 +1507,7 @@ async fn handle_pegin_request_default(
                 bail!(e)
             }
         };
-    // 2. save the pegin request data to local db
+    // 3. save the pegin request data to local db
     store_pegin_request(
         ctx.btc_client,
         ctx.local_db,
@@ -1419,7 +1515,7 @@ async fn handle_pegin_request_default(
             instance_id,
             user_info,
             pegin_amount,
-            pegin_request_tx_hash: pegin_request_tx_hash.to_string(),
+            pegin_request_tx_hash,
             pegin_request_height,
             pegin_timestamp,
         },
@@ -7156,6 +7252,25 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[tokio::test]
+    async fn missing_pegin_event_is_ignored_without_enqueuing_retry() {
+        let local_db = store::create_local_db("sqlite::memory:").await;
+        let instance_id = Uuid::new_v4();
+
+        let metadata =
+            resolve_pegin_request_metadata(&local_db, instance_id, "0xuntrusted", i64::MAX)
+                .await
+                .unwrap();
+
+        assert!(metadata.is_none());
+        let mut storage_processor = local_db.acquire().await.unwrap();
+        let queued = storage_processor
+            .find_message_by_business_id(&instance_id, "PeginRequest")
+            .await
+            .unwrap();
+        assert!(queued.is_none());
+    }
 
     fn verifier_pubkey() -> PublicKey {
         PublicKey::from_str("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")

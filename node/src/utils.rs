@@ -2082,7 +2082,7 @@ pub async fn read_pegin_request(
     btc_client: &BTCClient,
     goat_client: &GOATClient,
     instance_id: Uuid,
-) -> Result<(UserInfo, Amount)> {
+) -> Result<(UserInfo, Amount, Vec<EvmAddress>)> {
     let pegin_data = goat_client.gateway_get_pegin_data(&instance_id).await?;
     if pegin_data.status != PeginStatus::Pending {
         bail!("Invalid PeginRequest: expired or already processed");
@@ -2130,7 +2130,7 @@ pub async fn read_pegin_request(
         user_refund_address,
         user_xonly_pubkey,
     };
-    Ok((user_info, Amount::from_sat(pegin_data.pegin_amount_sats)))
+    Ok((user_info, Amount::from_sat(pegin_data.pegin_amount_sats), pegin_data.committee_addresses))
 }
 
 pub async fn read_instance_info_from_goat(
@@ -4427,16 +4427,42 @@ pub async fn generate_instance(
     })
 }
 
+/// Store the pegin request against the local instance row.
+///
+/// Returns:
+/// - Ok(true) if the instance was created, or refreshed while still in a
+///   pegin-request stage
+/// - Ok(false) if the request was not applied because the instance has moved
+///   past the pegin-request stage, or the id belongs to a bridge-out instance
 pub async fn store_pegin_request(
     btc_client: &BTCClient,
     local_db: &LocalDB,
     params: GenerateInstanceParams,
-) -> Result<()> {
+) -> Result<bool> {
     // store instance info to local db
+    let instance_id = params.instance_id;
     let mut storage_processor = local_db.acquire().await?;
     let instance = generate_instance(btc_client, params).await?;
-    storage_processor.upsert_instance(&instance).await?;
-    Ok(())
+    // A PeginRequest only initializes an instance. Guarding the write on the
+    // pre-pegin statuses keeps a replayed or forged request from rolling a live
+    // instance back to UserInited and clearing what later stages stored.
+    let stored = storage_processor
+        .upsert_pegin_request_instance(
+            &instance,
+            &[
+                InstanceBridgeInStatus::UserIniting.to_string(),
+                InstanceBridgeInStatus::UserInited.to_string(),
+            ],
+        )
+        .await?;
+    if !stored {
+        warn!(
+            "ignore PeginRequest for instance {instance_id}: it is not a bridge-in instance in a pegin-request stage"
+        );
+        return Ok(false);
+    }
+    info!("stored PeginRequest for instance {instance_id}");
+    Ok(true)
 }
 
 pub async fn store_instance_parameters(
