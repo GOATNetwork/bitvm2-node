@@ -14,10 +14,10 @@ use crate::metrics_service::{MetricsState, metrics_handler, metrics_middleware};
 use crate::rpc_service::auth::require_request_auth;
 use crate::rpc_service::cors_config::CorsConfig;
 use crate::rpc_service::handler::{
-    get_chain_proof_desc, get_graph, get_graph_neighbor_ids, get_graph_tx, get_graph_txn, get_graphs,
-    get_instance, get_instances, get_instances_overview, get_node,
-    get_nodes, get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph, get_swap,
-    get_swaps, get_unsigned_pegin_txn, instance_settings, pegout, send_challenge,
+    get_chain_proof_desc, get_graph, get_graph_neighbor_ids, get_graph_tx, get_graph_txn,
+    get_graphs, get_instance, get_instances, get_instances_overview, get_node, get_nodes,
+    get_nodes_overview, get_operator_proof_desc, get_ready_to_kickoff_graph, get_swap, get_swaps,
+    get_unsigned_pegin_txn, instance_settings, pegout, send_challenge,
 };
 #[cfg(feature = "rpc-debug-endpoints")]
 use crate::rpc_service::handler::{
