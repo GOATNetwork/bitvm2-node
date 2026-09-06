@@ -814,6 +814,7 @@ bitvm-noded key funding-address
 ```bash
 bitvm-noded \
   --rpc-addr 0.0.0.0:8080 \
+  --metrics-addr 127.0.0.1:9108 \
   --db-path ./node.db \
   --p2p-port 4001 \
   --bootnodes /ip4/x.x.x.x/tcp/4001/p2p/<peer_id>
@@ -850,7 +851,8 @@ real graph raw data in the database.
 | `--db-path` | SQLite database path | `sqlite:/tmp/bitvm-node.db` |
 | `--p2p-port` | P2P listen port | `0` (random) |
 | `--bootnodes` | Bootstrap node addresses | - |
-| `--metrics-path` | Prometheus metrics endpoint | `/metrics` |
+| `--metrics-addr` | Dedicated Prometheus listener address | Disabled |
+| `--metrics-path` | Path served by the dedicated metrics listener | `/metrics` |
 | `--enable-kademlia` | Enable Kademlia DHT | `true` |
 
 ---
@@ -899,6 +901,10 @@ Relayer nodes should:
 
 ## RPC API
 
+Prometheus metrics are not served by the business RPC listener. Set
+`--metrics-addr` to a private, process-unique address and scrape
+`http://<metrics-addr>/metrics`; `GET /metrics` on `--rpc-addr` returns `404`.
+
 ### Endpoints
 
 | Endpoint | Method | Description |
@@ -918,7 +924,7 @@ Relayer nodes should:
 | `/v1/swaps` | GET | List swap bridge-out escrows |
 | `/v1/swaps/:escrow_hash` | GET | Get swap escrow details |
 | `/challenge` | POST | Submit challenge |
-| `/metrics` | GET | Prometheus metrics |
+| `/metrics` | GET | Prometheus metrics (dedicated metrics listener only) |
 
 ---
 
