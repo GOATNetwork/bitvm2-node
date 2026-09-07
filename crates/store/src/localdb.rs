@@ -1174,8 +1174,8 @@ impl<'a> StorageProcessor<'a> {
     ///
     /// Returns:
     /// - Ok(true) if the row was inserted or updated
-    /// - Ok(false) if an existing row was left untouched because it is not a
-    ///   bridge-in instance, or its status is outside `allowed_statuses`
+    /// - Ok(false) if an existing row was left untouched because its status
+    ///   is outside `allowed_statuses`
     pub async fn upsert_pegin_request_instance(
         &mut self,
         instance: &Instance,
@@ -1192,12 +1192,12 @@ impl<'a> StorageProcessor<'a> {
         };
         let sql = format!(
             "INSERT INTO instance \
-             (instance_id, is_bridge_in, network, from_addr, to_addr, amount, fees, input_utxos, \
+             (instance_id, network, from_addr, to_addr, amount, fees, input_utxos, \
               status, goat_tx_hash, goat_tx_height, user_xonly_pubkey, user_change_addr, \
               user_refund_addr, btc_txid, pegin_confirm_txid, pegin_cancel_txid, committees_answers, \
-              pegin_data_tx_hash, btc_height, parameters, status_updated_at, escrow_hash, \
-              bridge_out_lock_time, post_pegin_txhash, bridge_out_amount, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+              pegin_data_tx_hash, btc_height, parameters, status_updated_at, \
+              post_pegin_txhash, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT(instance_id) DO UPDATE SET \
                network = excluded.network, \
                from_addr = CASE WHEN excluded.from_addr = '' \
@@ -1214,7 +1214,7 @@ impl<'a> StorageProcessor<'a> {
                user_refund_addr = excluded.user_refund_addr, \
                status_updated_at = excluded.status_updated_at, \
                updated_at = excluded.updated_at \
-             WHERE instance.is_bridge_in = excluded.is_bridge_in AND {status_guard}"
+             WHERE {status_guard}"
         );
         let mut query = sqlx::query(&sql)
             .bind(instance.instance_id)
