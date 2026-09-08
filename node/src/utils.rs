@@ -84,8 +84,8 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
 };
 use bitcoin_light_client_circuit::hash_operator_constant;
 use bitvm_lib::babe_adapter::{
-    BABE_M_CC, BabeVerifierPrivateState, CACSetupPackage, FinalizedInstanceData, SolderingData,
-    compact_soldering_proof_payload,
+    BABE_M_CC, BabeVerifierPrivateState, CACSetupPackage, FinalizedInstanceData, Seed,
+    SolderingData, compact_soldering_proof_payload,
 };
 use bitvm_lib::transactions::base::BaseTransaction;
 use client::goat_chain::{DisproveTxType, GraphData, PeginStatus, WithdrawStatus};
@@ -6107,7 +6107,7 @@ pub(crate) async fn save_soldering_proof_payload(
     instance_id: Uuid,
     graph_id: Uuid,
     candidate_index: usize,
-    opened: &[(usize, u64)],
+    opened: &[(usize, Seed)],
     finalized: &[FinalizedInstanceData],
     soldering: &SolderingData,
 ) -> Result<SolderingProofReady> {
