@@ -12,7 +12,7 @@ use bitcoin::{
 };
 use bitcoin_script::script;
 use bitvm_gc::babe_adapter::{
-    BABE_M_CC, BabeProverState, CACSetupPackage, TxAssertWitness, assert_wots_message,
+    BABE_M_CC, BabeProverState, CACSetupPackage, Seed, TxAssertWitness, assert_wots_message,
     build_assert_witness, build_setup_package, derive_finalized_indices, extract_gc_circuit_data,
     open_and_solder, recover_operator_proof_from_assert_witness, verify_setup,
 };
@@ -82,7 +82,7 @@ static MOCK_FIXTURE: OnceLock<std::result::Result<MockProofGcFixture, String>> =
 struct MockProofGcFixture {
     version: u32,
     setup_package: CACSetupPackage,
-    opened: Vec<(usize, u64)>,
+    opened: Vec<(usize, Seed)>,
     prover_state: BabeProverState,
     gc_data: BitvmGcCircuitData,
     proof_bytes: Vec<u8>,
