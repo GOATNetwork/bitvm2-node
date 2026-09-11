@@ -116,7 +116,8 @@ jobs:
           pass       | MessageStateRaceFixed.cfg          | MessageStateRace.tla               | Finding 7 fix - terminal-guarded resurrect
           pass       | Take1ChallengeRaceFixed.cfg        | Take1ChallengeRace.tla             | Finding 9 fix - connector_a margin check added
           pass       | VerifierKickoffFailOpenFixed.cfg   | VerifierKickoffFailOpen.tla        | Issue #429 fix design - defer/retry mirrors committee
-          pass       | KickoffScanCoverageFixed.cfg       | KickoffScanCoverage.tla            | Issue #431 fix - scan_kickoff_chain with adequate depth
+          pass       | KickoffScanCoverageFixed.cfg       | KickoffScanCoverage.tla            | Issue #431 fix (#451) - root-only chain walk with adequate depth
+          pass       | KickoffScanCoverageAllEntries.cfg  | KickoffScanCoverage.tla            | Issue #431 residual fix - every pending graph is a scan entry (holds with ScanDepth=0)
           historical | GraphLifecycle.cfg                 | GraphLifecycle.tla                 | Finding 1: Graph.status race (fixed 991faaa)
           historical | GraphLifecycleFineGrained.cfg      | GraphLifecycleFineGrained.tla      | Finding 1b: naive guard still unsafe (fixed 991faaa)
           historical | InstancePresignedBug.cfg           | InstancePresigned.tla              | Finding 2: Instance.status regression past Presigned (fixed 991faaa)
@@ -125,7 +126,7 @@ jobs:
           historical | Take1ChallengeRace.cfg             | Take1ChallengeRace.tla             | Finding 9: connector_a has no margin check (fixed 991faaa)
           historical | KickoffScanCoverage.cfg            | KickoffScanCoverage.tla            | Issue #431: detect_kickoff one-per-operator coverage gap (fixed by #451)
           historical | VerifierKickoffFailOpen.cfg        | VerifierKickoffFailOpen.tla        | Issue #429: verifier KickoffSent fail-open (SPV lag skipped Challenge, never retried) (fixed by #455)
-          live       | KickoffScanCoverageResidual.cfg    | KickoffScanCoverage.tla            | Issue #431 residual: MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 depth cap leaves deeper decoy chains uncovered
+          historical | KickoffScanCoverageResidual.cfg    | KickoffScanCoverage.tla            | Issue #431 residual: root-only walk capped at MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 (fixed: all pending graphs are scan entries)
           SPECS
           {
             echo

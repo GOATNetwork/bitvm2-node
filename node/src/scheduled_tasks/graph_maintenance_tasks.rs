@@ -6,9 +6,7 @@ use crate::action::{
 };
 use crate::env::get_network;
 use crate::rpc_service::current_time_secs;
-use crate::scheduled_tasks::{
-    fetch_all_graphs_by_status, fetch_first_graph_per_operator_by_status,
-};
+use crate::scheduled_tasks::fetch_all_graphs_by_status;
 use crate::utils::{
     SELF_SENDER, load_validated_graph_definition, outpoint_spent_txid, upsert_message,
 };
@@ -21,9 +19,11 @@ use bitvm_lib::timelocks::{
 };
 use client::btc_chain::BTCClient;
 use client::goat_chain::DisproveTxType;
+use futures::StreamExt;
 use goat::{constants::TimelockConfig, transactions::base::output_topology};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::sync::Mutex;
 use store::localdb::{LocalDB, StorageProcessor};
 use store::{
     GoatTxProcessingStatus, GoatTxType, Graph, GraphBtcTxVoutMonitor, GraphStatus, SerializableTxid,
@@ -37,6 +37,10 @@ const MONITE_BTC_TX_NAME_WATCHTOWER_INIT: &str = "watchtower_init";
 const MONITE_BTC_TX_NAME_PROVER_ASSERT: &str = "prover_assert";
 const MONITE_BTC_TX_NAME_VERIFIER_ASSERT: &str = "verifier_assert";
 const MAX_PREKICKOFF_SUCCESSORS_PER_SCAN: usize = 32;
+/// Upper bound on kickoff scan entries checked against Bitcoin at the same
+/// time. Every pending graph is an entry, so the per-tick cost is bounded by
+/// the number of pending graphs rather than by chain depth.
+const KICKOFF_SCAN_CONCURRENCY: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq, Display, EnumString)]
 enum OperatorWithdrawType {
@@ -329,6 +333,12 @@ fn is_kickoff_pending_status(status: &str) -> bool {
         || status == GraphStatus::PreKickoff.to_string()
 }
 
+/// Whether `txid` is confirmed. Unlike `get_tx_status`, an unknown txid is
+/// reported as not confirmed instead of as an error.
+async fn tx_confirmed_on_chain(btc_client: &BTCClient, txid: &Txid) -> anyhow::Result<bool> {
+    Ok(btc_client.get_tx_info(txid).await?.map(|tx| tx.status.confirmed).unwrap_or(false))
+}
+
 async fn detect_graph_kickoff(
     local_db: &LocalDB,
     btc_client: &BTCClient,
@@ -343,8 +353,9 @@ async fn detect_graph_kickoff(
         return Ok(());
     };
     let kickoff_txid: Txid = kickoff_txid.into();
-    let tx_status = btc_client.get_tx_status(&kickoff_txid).await?;
-    if tx_status.confirmed {
+    // A kickoff that has not been broadcast yet is the normal state of a
+    // pending graph; esplora answers 404, which get_tx_info maps to None.
+    if tx_confirmed_on_chain(btc_client, &kickoff_txid).await? {
         enqueue_kickoff_sent(local_db, graph).await?;
     } else {
         trace!(graph_id = %graph.graph_id, kickoff_txid = %kickoff_txid, "kickoff is not confirmed yet");
@@ -361,7 +372,7 @@ async fn confirmed_prekickoff_successor(
         return Ok(None);
     };
     let next_prekickoff_txid: Txid = next_prekickoff.clone().into();
-    if !btc_client.get_tx_status(&next_prekickoff_txid).await?.confirmed {
+    if !tx_confirmed_on_chain(btc_client, &next_prekickoff_txid).await? {
         return Ok(None);
     }
 
@@ -402,11 +413,18 @@ async fn scan_kickoff_chain(
     local_db: &LocalDB,
     btc_client: &BTCClient,
     start_graph: Graph,
-    visited_graph_ids: &mut HashSet<Uuid>,
+    visited_graph_ids: &Mutex<HashSet<Uuid>>,
 ) -> anyhow::Result<()> {
     let mut graph = start_graph;
     for successor_depth in 0..=MAX_PREKICKOFF_SUCCESSORS_PER_SCAN {
-        if !visited_graph_ids.insert(graph.graph_id) {
+        // Entries are scanned concurrently; whichever walker claims a graph
+        // first scans it, the others stop at it. The lock is never held
+        // across an await.
+        let first_visit = visited_graph_ids
+            .lock()
+            .map_err(|_| anyhow::anyhow!("kickoff scan visited set poisoned"))?
+            .insert(graph.graph_id);
+        if !first_visit {
             return Ok(());
         }
 
@@ -424,16 +442,17 @@ async fn scan_kickoff_chain(
             return Ok(());
         };
 
+        // Enqueue before checking the depth limit so the successor at the
+        // boundary still gets its PreKickoffSent this tick.
+        enqueue_prekickoff_sent(local_db, &successor).await?;
         if successor_depth == MAX_PREKICKOFF_SUCCESSORS_PER_SCAN {
-            warn!(
+            info!(
                 graph_id = %graph.graph_id,
                 max_depth = MAX_PREKICKOFF_SUCCESSORS_PER_SCAN,
-                "stopped pre-kickoff successor scan at configured depth limit"
+                "stopped this pre-kickoff walk at the depth limit; later graphs are scanned as their own entries"
             );
             return Ok(());
         }
-
-        enqueue_prekickoff_sent(local_db, &successor).await?;
         graph = successor;
     }
     Ok(())
@@ -441,14 +460,18 @@ async fn scan_kickoff_chain(
 
 /// May trigger PreKickoffSent and KickoffSent.
 ///
-/// The first OperatorDataPushed graph is the normal scan entry point for an
-/// operator. A confirmed `next_prekickoff` proves that the next graph has
-/// started, so follow that chain instead of letting the earlier graph hide it.
+/// Every OperatorDataPushed or PreKickoff graph is a scan entry, so a kickoff
+/// on any stored graph is observed in the tick it confirms, regardless of how
+/// deep it sits in the operator's pre-kickoff chain or whether the earlier
+/// graphs' messages have been handled. The chain walk from each entry only
+/// propagates PreKickoffSent to confirmed successors (which drives the
+/// force-skip of the graph before each of them); it is not what guarantees
+/// coverage, so its depth limit only bounds a single walk.
 pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyhow::Result<()> {
     trace!("start tick action: detect_kickoff");
     let graphs = {
         let mut storage_processor = local_db.acquire().await?;
-        let mut graphs = fetch_first_graph_per_operator_by_status(
+        let mut graphs = fetch_all_graphs_by_status(
             &mut storage_processor,
             &GraphStatus::OperatorDataPushed.to_string(),
         )
@@ -463,17 +486,22 @@ pub async fn detect_kickoff(local_db: &LocalDB, btc_client: &BTCClient) -> anyho
         );
         graphs
     };
-    info!("start tick action: detect_kickoff, roots: {}", graphs.len());
+    info!("start tick action: detect_kickoff, entries: {}", graphs.len());
 
-    let mut visited_graph_ids = HashSet::new();
-    for graph in graphs {
-        let graph_id = graph.graph_id;
-        if let Err(error) =
-            scan_kickoff_chain(local_db, btc_client, graph, &mut visited_graph_ids).await
-        {
-            warn!(graph_id = %graph_id, error = %error, "failed to scan kickoff chain");
-        }
-    }
+    let visited_graph_ids = Mutex::new(HashSet::new());
+    futures::stream::iter(graphs)
+        .for_each_concurrent(KICKOFF_SCAN_CONCURRENCY, |graph| {
+            let visited_graph_ids = &visited_graph_ids;
+            async move {
+                let graph_id = graph.graph_id;
+                if let Err(error) =
+                    scan_kickoff_chain(local_db, btc_client, graph, visited_graph_ids).await
+                {
+                    warn!(graph_id = %graph_id, error = %error, "failed to scan kickoff chain");
+                }
+            }
+        })
+        .await;
     Ok(())
 }
 
