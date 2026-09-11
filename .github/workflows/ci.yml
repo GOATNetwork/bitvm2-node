@@ -124,7 +124,7 @@ jobs:
           historical | MessageStateRace.cfg               | MessageStateRace.tla               | Finding 7: MessageState resurrection (fixed 991faaa)
           historical | Take1ChallengeRace.cfg             | Take1ChallengeRace.tla             | Finding 9: connector_a has no margin check (fixed 991faaa)
           historical | KickoffScanCoverage.cfg            | KickoffScanCoverage.tla            | Issue #431: detect_kickoff one-per-operator coverage gap (fixed by #451)
-          live       | VerifierKickoffFailOpen.cfg        | VerifierKickoffFailOpen.tla        | Issue #429: verifier KickoffSent fail-open (SPV lag skips Challenge, never retried)
+          historical | VerifierKickoffFailOpen.cfg        | VerifierKickoffFailOpen.tla        | Issue #429: verifier KickoffSent fail-open (SPV lag skipped Challenge, never retried) (fixed by #455)
           live       | KickoffScanCoverageResidual.cfg    | KickoffScanCoverage.tla            | Issue #431 residual: MAX_PREKICKOFF_SUCCESSORS_PER_SCAN=32 depth cap leaves deeper decoy chains uncovered
           SPECS
           {
