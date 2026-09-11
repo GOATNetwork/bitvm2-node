@@ -18,9 +18,9 @@ use crate::scheduled_tasks::graph_maintenance_tasks::{
     detect_init_withdraw_call, detect_kickoff, detect_take1_or_challenge, process_graph_challenge,
 };
 use crate::scheduled_tasks::instance_maintenance_tasks::{
-    instance_answers_monitor, instance_bridge_out_monitor, instance_btc_tx_monitor,
-    instance_committee_key_cleanup_monitor, instance_expiration_monitor,
-    instance_window_expiration_monitor, pegin_confirm_recovery_monitor,
+    instance_answers_monitor, instance_btc_tx_monitor, instance_committee_key_cleanup_monitor,
+    instance_expiration_monitor, instance_window_expiration_monitor,
+    pegin_confirm_recovery_monitor, swap_escrow_timeout_monitor,
 };
 use crate::scheduled_tasks::node_maintenance_tasks::node_available_pbtc_update_monitor;
 use crate::scheduled_tasks::spv_maintenance_tasks::spv_header_hash_update;
@@ -157,31 +157,14 @@ async fn refresh_alert_health(
     }
 }
 
-/// Return every graph in the requested status. Time-sensitive flows must not
+/// Return every graph in the requested status, ordered by operator and
+/// kickoff index. Time-sensitive flows (including the kickoff scan) must not
 /// let a lower-index graph hide another graph owned by the same operator.
 pub(super) async fn fetch_all_graphs_by_status<'a>(
     storage_processor: &mut StorageProcessor<'a>,
     graph_status: &str,
 ) -> anyhow::Result<Vec<Graph>> {
     storage_processor.find_graphs_by_status_group_by_operator(graph_status).await
-}
-
-/// Return the lowest-index graph for each operator in the requested status.
-/// This is only suitable as the entry point for a chain-aware scan.
-pub(super) async fn fetch_first_graph_per_operator_by_status<'a>(
-    storage_processor: &mut StorageProcessor<'a>,
-    graph_status: &str,
-) -> anyhow::Result<Vec<Graph>> {
-    let graphs_ori = fetch_all_graphs_by_status(storage_processor, graph_status).await?;
-    let mut graphs: Vec<Graph> = vec![];
-    let mut pre_operator_pubkey = "".to_string();
-    for graph in graphs_ori {
-        if graph.operator_pubkey != pre_operator_pubkey {
-            pre_operator_pubkey = graph.operator_pubkey.clone();
-            graphs.push(graph);
-        }
-    }
-    Ok(graphs)
 }
 
 async fn run_maintenance_subtask<T>(
@@ -312,8 +295,8 @@ async fn run(
     .await;
     run_maintenance_subtask(
         metrics_state,
-        "instance_bridge_out_monitor",
-        instance_bridge_out_monitor(local_db),
+        "swap_escrow_timeout_monitor",
+        swap_escrow_timeout_monitor(local_db),
     )
     .await;
     run_maintenance_subtask(
@@ -496,14 +479,19 @@ pub fn get_goat_message_content_type(content: &GOATMessageContent) -> MessageTyp
         GOATMessageContent::GenCircuits(_) => MessageType::GenCircuits,
         GOATMessageContent::CutCircuits(_) => MessageType::CutCircuits,
         GOATMessageContent::SolderingProofReady(_) => MessageType::SolderingProof,
+        GOATMessageContent::GraphSetupAck(_) => MessageType::None,
         GOATMessageContent::VerifierGraphParamsEndorsement(_) => {
             MessageType::VerifierGraphParamsEndorsement
         }
         GOATMessageContent::NonceGeneration(_) => MessageType::NonceGeneration,
+        GOATMessageContent::AggNonceConsensus(_) => MessageType::AggNonceConsensus,
         GOATMessageContent::CommitteePresign(_) => MessageType::CommitteePresign,
         GOATMessageContent::GraphFinalize(_) => MessageType::GraphFinalize,
         GOATMessageContent::EndorseGraph(_) => MessageType::EndorseGraph,
         GOATMessageContent::PeginConfirmNonce(_) => MessageType::PeginConfirmNonce,
+        GOATMessageContent::PeginConfirmNonceConsensus(_) => {
+            MessageType::PeginConfirmNonceConsensus
+        }
         GOATMessageContent::PeginConfirmPartialSig(_) => MessageType::PeginConfirmPartialSig,
         GOATMessageContent::PostReady(_) => MessageType::PostReady,
         GOATMessageContent::KickoffReady(_) => MessageType::KickoffReady,
